@@ -22,8 +22,12 @@ STAFF_USERS = {
     "linh": {"password": "bridge-demo", "display_name": "Linh Pham", "role": "front_desk", "department": "Guest experience"},
     "mina": {"password": "bridge-demo", "display_name": "Mina Tran", "role": "housekeeping", "department": "Housekeeping"},
     "alex": {"password": "bridge-demo", "display_name": "Alex Nguyen", "role": "manager", "department": "Management"},
+    "son": {"password": "bridge-demo", "display_name": "Son Le", "role": "restaurant", "department": "Restaurant"},
+    "bao": {"password": "bridge-demo", "display_name": "Bao Nguyen", "role": "maintenance", "department": "Engineering"},
 }
 STAFF_ROLES = {"front_desk", "housekeeping", "restaurant", "maintenance", "manager"}
+ROLE_BY_SERVICE = {"towels": "housekeeping", "housekeeping": "housekeeping", "room-service": "restaurant", "maintenance": "maintenance"}
+SLA_MINUTES = {"towels": 15, "water": 10, "room-service": 35, "laundry": 480, "housekeeping": 20, "taxi": 10, "maintenance": 20, "checkout": 60}
 
 SERVICES = [
     {"id": "towels", "icon": "▤", "name": "Extra towels", "vi": "Thêm khăn tắm", "price": "Complimentary", "eta": "10–15 min"},
@@ -119,6 +123,14 @@ def require_staff(handler, state, roles=None):
     return user
 
 
+def can_update_order(user, order):
+    return user["role"] in {"front_desk", "manager"} or user["role"] == order.get("assigned_role", ROLE_BY_SERVICE.get(order.get("service_id"), "front_desk"))
+
+
+def order_due_at(service_id):
+    return (datetime.now(timezone.utc) + timedelta(minutes=SLA_MINUTES.get(service_id, 30))).isoformat()
+
+
 def translate_reply(text: str):
     lower = text.lower()
     if "breakfast" in lower:
@@ -177,8 +189,24 @@ class Handler(BaseHTTPRequestHandler):
             user = require_staff(self, state)
             if not user:
                 return
-            visible = state["orders"] if user["role"] in {"front_desk", "manager"} else [o for o in state["orders"] if (user["role"] == "housekeeping" and o["service_id"] in {"towels", "housekeeping"}) or (user["role"] == "maintenance" and o["service_id"] == "maintenance") or (user["role"] == "restaurant" and o["service_id"] == "room-service")]
-            return self.send_json({"user": {"username": user["username"], "role": user["role"], "department": user["department"]}, "orders": visible, "open_count": sum(o["status"] != "Completed" for o in visible)})
+            visible = state["orders"] if user["role"] in {"front_desk", "manager"} else [o for o in state["orders"] if o.get("assigned_role", ROLE_BY_SERVICE.get(o.get("service_id"), "front_desk")) == user["role"]]
+            return self.send_json({"user": {"username": user["username"], "role": user["role"], "department": user["department"]}, "orders": visible, "open_count": sum(o["status"] != "Completed" for o in visible), "overdue_count": sum(o.get("status") != "Completed" and o.get("due_at", "") < datetime.now(timezone.utc).isoformat() for o in visible)})
+        if parsed.path == "/api/staff/escalations":
+            state = load_state()
+            user = require_staff(self, state, {"front_desk", "manager"})
+            if not user:
+                return
+            now = datetime.now(timezone.utc)
+            overdue = []
+            for order in state["orders"]:
+                if order.get("status") == "Completed" or not order.get("due_at"):
+                    continue
+                try:
+                    if datetime.fromisoformat(order["due_at"]) < now:
+                        overdue.append({**order, "escalation": "SLA overdue"})
+                except ValueError:
+                    continue
+            return self.send_json({"orders": overdue, "count": len(overdue)})
         state = load_state()
         if parsed.path == "/api/orders":
             room = parse_qs(parsed.query).get("room", [None])[0]
@@ -222,11 +250,34 @@ class Handler(BaseHTTPRequestHandler):
             service = next((s for s in SERVICES if s["id"] == data.get("service_id")), None)
             if not service:
                 return self.send_json({"error": "Unknown service"}, 400)
-            order = {"id": f"HB-{uuid.uuid4().hex[:6].upper()}", "room": str(data.get("room", "302")), "service_id": service["id"], "quantity": int(data.get("quantity", 1)), "status": "New request", "created_at": now_label()}
+            assigned_role = ROLE_BY_SERVICE.get(service["id"], "front_desk")
+            order = {"id": f"HB-{uuid.uuid4().hex[:6].upper()}", "room": str(data.get("room", "302")), "service_id": service["id"], "quantity": int(data.get("quantity", 1)), "status": "New request", "created_at": now_label(), "assigned_role": assigned_role, "due_at": order_due_at(service["id"]), "updated_at": datetime.now(timezone.utc).isoformat()}
             state["orders"].insert(0, order)
             audit(state, "order.created", order["room"], order["id"])
             save_state(state)
             return self.send_json({"order": order}, 201)
+        if parsed.path == "/api/orders/status":
+            user = require_staff(self, state)
+            if not user:
+                return
+            order_id = str(data.get("order_id", ""))
+            status = str(data.get("status", "")).strip()
+            allowed_statuses = {"Accepted", "In progress", "Ready", "Completed", "Cancelled"}
+            if status not in allowed_statuses:
+                return self.send_json({"error": "Invalid order status"}, 400)
+            order = next((o for o in state["orders"] if o["id"] == order_id), None)
+            if not order:
+                return self.send_json({"error": "Order not found"}, 404)
+            if not can_update_order(user, order):
+                return self.send_json({"error": "Role cannot update this order"}, 403)
+            previous = order["status"]
+            order["status"] = status
+            order["updated_at"] = datetime.now(timezone.utc).isoformat()
+            if data.get("note"):
+                order["staff_note"] = str(data["note"])[:500]
+            audit(state, "order.status_changed", order["room"], f"{order_id}: {previous} -> {status} by {user['username']}")
+            save_state(state)
+            return self.send_json({"order": order}, 200)
         if parsed.path == "/api/messages":
             text = str(data.get("text", "")).strip()
             if not text:

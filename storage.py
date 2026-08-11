@@ -52,6 +52,12 @@ CREATE TABLE IF NOT EXISTS staff_sessions (
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS order_meta (
+  order_id TEXT PRIMARY KEY,
+  assigned_role TEXT NOT NULL,
+  due_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 """
 
 
@@ -96,6 +102,9 @@ def load_state():
         sessions = [dict(row) for row in connection.execute("SELECT token, room, language, created_at, expires_at FROM sessions ORDER BY rowid ASC")]
         audit = [dict(row) for row in connection.execute("SELECT id, action, room, detail, created_at FROM audit ORDER BY rowid ASC")]
         staff_sessions = [dict(row) for row in connection.execute("SELECT token, username, role, created_at, expires_at FROM staff_sessions ORDER BY rowid ASC")]
+        meta = {row["order_id"]: dict(row) for row in connection.execute("SELECT order_id, assigned_role, due_at, updated_at FROM order_meta")}
+        for order in orders:
+            order.update(meta.get(order["id"], {}))
         return {"orders": orders, "messages": messages, "sessions": sessions, "audit": audit, "staff_sessions": staff_sessions}
 
 
@@ -111,8 +120,10 @@ def save_state(state):
         connection.executemany("INSERT INTO audit VALUES (?, ?, ?, ?, ?)", [(a["id"], a["action"], a["room"], a.get("detail", ""), a["created_at"]) for a in state.get("audit", [])])
         connection.execute("DELETE FROM staff_sessions")
         connection.executemany("INSERT INTO staff_sessions VALUES (?, ?, ?, ?, ?)", [(s["token"], s["username"], s["role"], s["created_at"], s["expires_at"]) for s in state.get("staff_sessions", [])])
+        connection.execute("DELETE FROM order_meta")
+        connection.executemany("INSERT INTO order_meta VALUES (?, ?, ?, ?)", [(o["id"], o.get("assigned_role", "front_desk"), o.get("due_at", ""), o.get("updated_at", o["created_at"])) for o in state.get("orders", [])])
 
 
 def database_summary():
     with connect() as connection:
-        return {table: _count(connection, table) for table in ("orders", "messages", "sessions", "audit", "staff_sessions")}
+        return {table: _count(connection, table) for table in ("orders", "messages", "sessions", "audit", "staff_sessions", "order_meta")}

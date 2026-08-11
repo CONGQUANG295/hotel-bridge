@@ -69,8 +69,10 @@ Mở `http://localhost:4173` trên trình duyệt.
 - Storage pilot dùng SQLite tại `hotel-bridge.db`; file `pilot-state.json` chỉ giữ làm backup/migration.
 - Khi database rỗng, dữ liệu legacy được migrate tự động từ JSON sang SQLite.
 - Staff auth: `POST /api/staff/login`, `GET /api/staff/me`, `GET /api/staff/inbox`.
+- Staff order workflow: `POST /api/orders/status` với role restriction; SLA metadata gồm `assigned_role`, `due_at`, `updated_at`.
+- Escalation: `GET /api/staff/escalations` dành cho front desk/manager.
 - Các role pilot: `front_desk`, `housekeeping`, `restaurant`, `maintenance`, `manager`.
-- Tài khoản demo local: `linh`, `mina`, `alex`; password chung `bridge-demo`.
+- Tài khoản demo local: `linh`, `mina`, `son`, `bao`, `alex`; password chung `bridge-demo` — chỉ dùng pilot, phải thay bằng SSO/env khi production.
 - `front_desk` và `manager` thấy toàn bộ inbox; các bộ phận khác chỉ thấy order thuộc bộ phận của mình.
 
 ## Chạy V3
