@@ -1,0 +1,7 @@
+{
+  "name": "@hotel-bridge/guest-web",
+  "private": true,
+  "scripts": {"dev": "next dev -p 3000", "build": "next build", "typecheck": "tsc --noEmit"},
+  "dependencies": {"next": "15.3.2", "react": "19.1.0", "react-dom": "19.1.0", "@hotel-bridge/shared-types": "*", "@hotel-bridge/i18n": "*", "@hotel-bridge/ui": "*"},
+  "devDependencies": {"@types/node": "^22.0.0", "@types/react": "^19.0.0", "@types/react-dom": "^19.0.0", "typescript": "^5.8.0"}
+}

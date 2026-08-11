@@ -1,8 +1,12 @@
-# Local pilot/runtime state
-hotel-bridge.db
+node_modules/
+.next/
+dist/
+.expo/
+*.db
+*.sqlite
 pilot-state.json
-__pycache__/
-*.pyc
-.DS_Store
 .env
 .env.*
+__pycache__/
+.pytest_cache/
+.DS_Store

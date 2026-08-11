@@ -1,0 +1,13 @@
+{
+  "name": "hotel-bridge",
+  "private": true,
+  "workspaces": ["apps/guest-web", "apps/management-web", "apps/guest-mobile", "packages/*"],
+  "scripts": {
+    "dev:guest": "npm --workspace apps/guest-web run dev",
+    "dev:management": "npm --workspace apps/management-web run dev",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": {"node": ">=22"}
+}

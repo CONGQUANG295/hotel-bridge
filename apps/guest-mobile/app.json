@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "Hotel Bridge",
+    "slug": "hotel-bridge",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "hotelbridge",
+    "ios": {"bundleIdentifier": "com.hotelbridge.guest"},
+    "android": {"package": "com.hotelbridge.guest"},
+    "plugins": ["expo-router"]
+  }
+}
