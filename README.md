@@ -2,7 +2,7 @@
 
 Hotel Bridge là nền tảng dịch vụ khách sạn **không cần khách tải app**. Khách truy cập Guest PWA bằng QR/NFC/link ngắn, chọn ngôn ngữ, chat với khách sạn và gọi dịch vụ trực tiếp từ phòng. Nhân viên xử lý yêu cầu trên Management Dashboard.
 
-> **Current stage:** pilot vertical slice. Guest session, service catalog, SQLite order persistence, staff inbox, role-scoped status updates và audit log đã hoạt động. PMS, POS, translation provider thật và realtime notification chưa tích hợp.
+> **Current stage:** pilot vertical slice. Guest session, service catalog, SQLite order persistence, live guest order tracking, persisted guest chat, staff inbox, role-scoped status updates và audit log đã hoạt động. Bản dịch hiện là demo adapter có gắn nhãn; PMS, POS, translation provider thật và realtime notification chưa tích hợp.
 
 ## Architecture
 

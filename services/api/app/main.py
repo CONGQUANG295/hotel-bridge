@@ -52,6 +52,15 @@ def db() -> sqlite3.Connection:
         entity_id TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY, session_token TEXT NOT NULL REFERENCES guest_sessions(token),
+        room_number TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
+        sender TEXT NOT NULL, original_text TEXT NOT NULL, translated_text TEXT NOT NULL,
+        source_locale TEXT NOT NULL, target_locale TEXT NOT NULL, created_at TEXT NOT NULL
+      );
     """)
     return connection
 
@@ -78,8 +87,23 @@ class OrderEventRequest(BaseModel):
     status: str
 
 
+class ConversationRequest(BaseModel):
+    sessionToken: str = Field(min_length=16)
+
+
+class MessageRequest(BaseModel):
+    sessionToken: str = Field(min_length=16)
+    originalText: str = Field(min_length=1, max_length=2000)
+    sourceLocale: str = Field(default="en", min_length=2, max_length=10)
+    targetLocale: str = Field(default="vi", min_length=2, max_length=10)
+
+
 def order_dict(row: sqlite3.Row) -> dict:
     return {"id": row["id"], "roomNumber": row["room_number"], "serviceId": row["service_id"], "status": row["status"], "quantity": row["quantity"], "note": row["note"], "dueAt": row["due_at"], "assignedRole": row["assigned_role"], "createdAt": row["created_at"], "updatedAt": row["updated_at"]}
+
+
+def message_dict(row: sqlite3.Row) -> dict:
+    return {"id": row["id"], "conversationId": row["conversation_id"], "sender": row["sender"], "originalText": row["original_text"], "translatedText": row["translated_text"], "sourceLocale": row["source_locale"], "targetLocale": row["target_locale"], "createdAt": row["created_at"]}
 
 
 def require_session(connection: sqlite3.Connection, token: str) -> sqlite3.Row:
@@ -163,6 +187,45 @@ def update_order(order_id: str, payload: OrderEventRequest, x_staff_role: Role |
 @app.get("/api/management/inbox")
 def management_inbox(x_staff_role: Role | None = Header(default=None)) -> dict:
     return list_orders(x_staff_role=x_staff_role)
+
+
+@app.post("/api/conversations", status_code=201)
+def create_conversation(payload: ConversationRequest) -> dict:
+    with db() as connection:
+        session = require_session(connection, payload.sessionToken)
+        timestamp = now().isoformat()
+        conversation_id = f"CB-{secrets.token_hex(4).upper()}"
+        connection.execute("INSERT INTO conversations VALUES (?, ?, ?, ?, ?)", (conversation_id, session["token"], session["room_number"], timestamp, timestamp))
+        connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("conversation", conversation_id, "created", "guest", timestamp))
+    return {"id": conversation_id, "roomNumber": session["room_number"], "createdAt": timestamp, "updatedAt": timestamp}
+
+
+@app.get("/api/conversations/{conversation_id}/messages")
+def list_messages(conversation_id: str, sessionToken: str = Query(min_length=16)) -> dict:
+    with db() as connection:
+        session = require_session(connection, sessionToken)
+        conversation = connection.execute("SELECT * FROM conversations WHERE id = ? AND session_token = ?", (conversation_id, session["token"])).fetchone()
+        if not conversation:
+            raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation does not exist"})
+        rows = connection.execute("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", (conversation_id,)).fetchall()
+    return {"messages": [message_dict(row) for row in rows]}
+
+
+@app.post("/api/conversations/{conversation_id}/messages", status_code=201)
+def send_message(conversation_id: str, payload: MessageRequest) -> dict:
+    with db() as connection:
+        session = require_session(connection, payload.sessionToken)
+        conversation = connection.execute("SELECT * FROM conversations WHERE id = ? AND session_token = ?", (conversation_id, session["token"])).fetchone()
+        if not conversation:
+            raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation does not exist"})
+        timestamp = now().isoformat()
+        message_id = f"MSG-{secrets.token_hex(4).upper()}"
+        translated = payload.originalText if payload.sourceLocale == payload.targetLocale else f"[demo translation → {payload.targetLocale}] {payload.originalText}"
+        connection.execute("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (message_id, conversation_id, "guest", payload.originalText, translated, payload.sourceLocale, payload.targetLocale, timestamp))
+        connection.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (timestamp, conversation_id))
+        connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("message", message_id, "created", "guest", timestamp))
+        row = connection.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
+    return message_dict(row)
 
 
 @app.get("/api/audit")
