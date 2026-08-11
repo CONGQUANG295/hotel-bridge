@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#10231d" />
+  <meta name="description" content="Hotel Bridge — chat đa ngôn ngữ và đặt dịch vụ khách sạn không cần cài app." />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>Hotel Bridge V3 · Pilot API</title>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark"><span class="brand-dot"></span><span>Hotel Bridge</span></div>
+      <div class="header-actions">
+        <span class="live-pill"><i></i> Live demo</span>
+        <button class="icon-button" id="helpButton" aria-label="Trợ giúp">?</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero hero-v2">
+        <div class="hero-copy">
+          <p class="eyebrow">WELCOME BACK · DIGITAL CONCIERGE</p>
+          <h1>Your stay,<br /><em>made simple.</em></h1>
+          <p class="hero-description">Không cần tải app. Quét QR, chọn ngôn ngữ và kết nối ngay với đội ngũ The Riverside.</p>
+          <div class="quick-actions">
+            <button class="primary-button" id="openOnboarding"><span>✦</span> Start in 30 seconds</button>
+            <button class="secondary-button" data-view="services"><span>＋</span> Browse services</button>
+          </div>
+          <div class="trust-line"><span>✓ No download</span><span>✓ No long sign-up</span><span>✓ Human support</span></div>
+        </div>
+        <div class="hero-card arrival-card">
+          <div class="room-card-label">YOUR DIGITAL KEY</div>
+          <div class="room-number">302</div>
+          <div class="stay-detail"><span>Check-in</span><strong>11 Aug 2026</strong></div>
+          <div class="stay-detail"><span>Check-out</span><strong>14 Aug 2026</strong></div>
+          <div class="language-select"><span>Ngôn ngữ</span><button id="languageButton">🇬🇧 English <span>⌄</span></button></div>
+        </div>
+      </section>
+
+      <div class="mode-switcher" role="tablist">
+        <button class="mode-tab active" data-mode="guest">Guest experience</button>
+        <button class="mode-tab" data-mode="staff">Staff dashboard <span class="notification-badge">3</span></button>
+      </div>
+
+      <section id="guestView" class="view active-view">
+        <div class="section-heading"><div><p class="eyebrow">AT YOUR SERVICE</p><h2>How can we help?</h2></div><button class="text-button" data-view="orders">View my orders <span>→</span></button></div>
+        <div class="service-grid" id="serviceGrid"></div>
+        <div class="content-grid">
+          <article class="info-card info-card-dark"><div><span class="card-kicker">NEED A HAND?</span><h3>Not sure what to ask for?</h3><p>Our team is one message away. We’ll reply in your preferred language.</p><button class="light-button" data-view="chat">Start a conversation <span>→</span></button></div><div class="orb">✦</div></article>
+          <article class="info-card"><span class="card-kicker">HOTEL GUIDE</span><h3>Make yourself at home.</h3><div class="guide-list"><div><span>◷</span><p><b>Breakfast</b><small>07:00 – 10:30 · Riverside Kitchen</small></p></div><div><span>⌁</span><p><b>Pool & wellness</b><small>06:00 – 22:00 · Level 4</small></p></div><div><span>⌖</span><p><b>Explore the city</b><small>Our local recommendations</small></p></div></div></article>
+        </div>
+      </section>
+
+      <section id="chatView" class="view">
+        <div class="section-heading"><div><p class="eyebrow">CONCIERGE CHAT · AUTO-TRANSLATED</p><h2>Talk to our team</h2></div><button class="back-button" data-view="home">← Back to services</button></div>
+        <div class="chat-layout"><div class="chat-panel"><div class="chat-header"><div class="avatar">LP</div><div><b>Linh Pham</b><small>Guest experience · Usually replies in 2 min</small></div><span class="online-dot"></span></div><div class="messages" id="messages"></div><div class="suggestions"><button data-message="Could I have two extra towels, please?">Extra towels</button><button data-message="What time does breakfast start?">Breakfast time</button><button data-message="I need help with the air conditioning.">Room issue</button></div><form class="composer" id="chatForm"><input id="chatInput" placeholder="Type your message…" autocomplete="off" /><button aria-label="Send message">↑</button></form></div><aside class="translation-note"><span>✧</span><h3>Language bridge</h3><p>Your messages are automatically translated to Vietnamese for our team. Replies are translated back to English.</p><div class="translation-pair"><b>English</b><span>↕</span><b>Tiếng Việt</b></div></aside></div>
+      </section>
+
+      <section id="servicesView" class="view"><div class="section-heading"><div><p class="eyebrow">ROOM 302 · SERVICES</p><h2>What can we bring you?</h2></div><button class="back-button" data-view="home">← Back to home</button></div><div class="service-list" id="serviceList"></div></section>
+      <section id="ordersView" class="view"><div class="section-heading"><div><p class="eyebrow">ROOM 302 · LIVE STATUS</p><h2>Your requests</h2></div><button class="back-button" data-view="home">← Back to home</button></div><div id="ordersList" class="orders-list"></div></section>
+
+      <section id="staffView" class="view"><div class="section-heading"><div><p class="eyebrow">OPERATIONS · TODAY, 11 AUG</p><h2>Good morning, Linh.</h2></div><button class="outline-button" id="staffFilter">All departments⌄</button></div><div class="stats-row"><div><span>Open requests</span><strong id="openCount">3</strong><small class="positive">↓ 12% vs yesterday</small></div><div><span>Avg. response time</span><strong>2m 14s</strong><small class="positive">↓ 31s vs yesterday</small></div><div><span>Guest satisfaction</span><strong>4.8 <small>/ 5</small></strong><small class="positive">↑ 0.2 this week</small></div></div><div class="dashboard-grid"><div class="inbox-card"><div class="panel-heading"><div><p class="eyebrow">INBOX</p><h3>Needs attention <span class="notification-badge">3</span></h3></div><button class="text-button">View all →</button></div><div id="staffInbox"></div></div><div class="inbox-card"><div class="panel-heading"><div><p class="eyebrow">TODAY'S FLOW</p><h3>Service requests</h3></div></div><div class="flow-chart"><div class="bar-row"><span>Room service</span><div><i style="width:82%"></i></div><b>18</b></div><div class="bar-row"><span>Housekeeping</span><div><i style="width:56%"></i></div><b>12</b></div><div class="bar-row"><span>Maintenance</span><div><i style="width:35%"></i></div><b>7</b></div><div class="bar-row"><span>Other</span><div><i style="width:21%"></i></div><b>4</b></div></div><div class="chart-footer"><span>41 total requests</span><span>Updated just now</span></div></div></div></section>
+    </main>
+    <footer><span>Hotel Bridge prototype</span><span>Privacy · Help · Emergency: +84 24 555 0199</span></footer>
+  </div>
+  <div id="onboardingModal" class="modal-backdrop" aria-hidden="true"><div class="onboarding-modal"><button class="modal-close" id="closeOnboarding" aria-label="Close">×</button><div class="modal-step active" data-step="1"><span class="step-icon">⌁</span><p class="eyebrow">STEP 1 OF 3</p><h2>Welcome to<br /><em>The Riverside.</em></h2><p>Scan the QR in your room or enter your room number to connect with our team.</p><label>Room number<input id="roomNumberInput" value="302" inputmode="numeric" /></label><button class="primary-button next-step">Continue <span>→</span></button></div><div class="modal-step" data-step="2"><span class="step-icon">文</span><p class="eyebrow">STEP 2 OF 3</p><h2>Choose your<br /><em>language.</em></h2><div class="language-grid"><button class="language-option selected">🇬🇧 English <small>English</small></button><button class="language-option">🇻🇳 Tiếng Việt <small>Vietnamese</small></button><button class="language-option">🇯🇵 日本語 <small>Japanese</small></button><button class="language-option">🇰🇷 한국어 <small>Korean</small></button></div><button class="primary-button next-step">Continue <span>→</span></button></div><div class="modal-step" data-step="3"><span class="step-icon">✦</span><p class="eyebrow">YOU'RE ALL SET</p><h2>How can we<br /><em>help today?</em></h2><div class="arrival-actions"><button class="arrival-action" data-view="chat"><b>◌</b><span>Chat with the team<small>Ask us anything</small></span><i>→</i></button><button class="arrival-action" data-view="services"><b>＋</b><span>Request a service<small>Food, towels, taxi & more</small></span><i>→</i></button></div></div></div></div>
+  <div id="staffLoginModal" class="modal-backdrop" aria-hidden="true"><div class="onboarding-modal staff-login-modal"><button class="modal-close" id="closeStaffLogin" aria-label="Close">×</button><span class="step-icon">◎</span><p class="eyebrow">STAFF ACCESS</p><h2>Sign in to<br /><em>operations.</em></h2><p>Use your staff account to view requests for your department.</p><form id="staffLoginForm"><label>Username<input id="staffUsername" value="linh" autocomplete="username" /></label><label>Password<input id="staffPassword" type="password" value="bridge-demo" autocomplete="current-password" /></label><button class="primary-button" type="submit">Sign in <span>→</span></button><p class="login-hint">Pilot accounts: linh · mina · alex<br />Password: bridge-demo</p></form></div></div>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="app.js"></script>
+</body>
+</html>

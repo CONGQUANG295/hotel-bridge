@@ -1,0 +1,8 @@
+# Local pilot/runtime state
+hotel-bridge.db
+pilot-state.json
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.env.*

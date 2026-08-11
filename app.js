@@ -1,0 +1,65 @@
+const services = [
+  { id:'towels', icon:'▤', name:'Extra towels', vi:'Thêm khăn tắm', price:'Complimentary', eta:'10–15 min' },
+  { id:'water', icon:'♧', name:'Bottled water', vi:'Nước đóng chai', price:'Free', eta:'5–10 min' },
+  { id:'room-service', icon:'✣', name:'Room service', vi:'Đồ ăn tại phòng', price:'From $8', eta:'25–35 min' },
+  { id:'laundry', icon:'⌁', name:'Laundry service', vi:'Dịch vụ giặt ủi', price:'From $5', eta:'Same day' },
+  { id:'housekeeping', icon:'✧', name:'Housekeeping', vi:'Dọn phòng', price:'Complimentary', eta:'15–20 min' },
+  { id:'taxi', icon:'⌖', name:'Book a taxi', vi:'Đặt taxi', price:'Metered', eta:'5–10 min' },
+  { id:'maintenance', icon:'⚒', name:'Room maintenance', vi:'Báo hỏng thiết bị', price:'Complimentary', eta:'10–20 min' },
+  { id:'checkout', icon:'◷', name:'Late check-out', vi:'Trả phòng muộn', price:'From $20', eta:'Subject to availability' }
+];
+const defaultMessages = [
+  { mine:false, name:'Linh', original:'Xin chào! Tôi có thể giúp gì cho bạn hôm nay?', translated:'Hello! How can I help you today?' },
+  { mine:true, name:'You', original:'Could I have two extra towels, please?', translated:'Tôi có thể xin thêm hai chiếc khăn tắm được không?' },
+  { mine:false, name:'Linh', original:'Tất nhiên rồi. Nhân viên sẽ mang lên trong khoảng 10 phút.', translated:'Of course. A team member will bring them up in about 10 minutes.' }
+];
+let messages = JSON.parse(localStorage.getItem('hb-messages') || 'null') || defaultMessages;
+let orders = JSON.parse(localStorage.getItem('hb-orders') || 'null') || [
+  { id:'HB-1042', icon:'▤', name:'Extra towels', detail:'2 towels · Room 302', status:'In progress', tone:'', time:'Today, 10:42' },
+  { id:'HB-1038', icon:'♧', name:'Bottled water', detail:'2 bottles · Room 302', status:'Completed', tone:'', time:'Today, 09:18' }
+];
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+let roomToken = sessionStorage.getItem('hb-room-token') || '';
+let staffToken = sessionStorage.getItem('hb-staff-token') || '';
+function persist(){ localStorage.setItem('hb-messages', JSON.stringify(messages)); localStorage.setItem('hb-orders', JSON.stringify(orders)); }
+function showToast(text){ const toast=$('#toast'); toast.textContent=text; toast.classList.add('show'); setTimeout(()=>toast.classList.remove('show'),2600); }
+function switchView(name){ $$('.view').forEach(v=>v.classList.remove('active-view')); const target=$(`#${name==='home'?'guest':name}View`); if(target) target.classList.add('active-view'); window.scrollTo({top:0,behavior:'smooth'}); }
+function openStaffLogin(){const modal=$('#staffLoginModal');modal.classList.add('open');modal.setAttribute('aria-hidden','false');}
+function closeStaffLogin(){const modal=$('#staffLoginModal');modal.classList.remove('open');modal.setAttribute('aria-hidden','true');}
+async function loadStaffInbox(){try{const response=await fetch('/api/staff/inbox',{headers:{Authorization:`Bearer ${staffToken}`}});if(!response.ok) throw new Error('expired');const data=await response.json();$('#openCount').textContent=data.open_count;showToast(`Signed in as ${data.user.department}.`);}catch(error){staffToken='';sessionStorage.removeItem('hb-staff-token');openStaffLogin();}}
+async function staffLogin(username,password){const response=await fetch('/api/staff/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});const data=await response.json();if(!response.ok) throw new Error(data.error);staffToken=data.token;sessionStorage.setItem('hb-staff-token',staffToken);closeStaffLogin();$$('.mode-tab').forEach(t=>t.classList.toggle('active',t.dataset.mode==='staff'));$('#guestView').classList.remove('active-view');$('#staffView').classList.add('active-view');await loadStaffInbox();}
+function renderServices(){
+  $('#serviceGrid').innerHTML=services.slice(0,4).map(s=>`<button class="service-card" data-service="${s.id}"><div class="service-icon">${s.icon}</div><div><h3>${s.name}</h3><p>${s.vi}</p></div></button>`).join('');
+  $('#serviceList').innerHTML=services.map(s=>`<div class="service-row"><div class="service-icon">${s.icon}</div><div class="service-row-content"><h3>${s.name}</h3><p>${s.vi} · ${s.eta}</p><span class="price">${s.price}</span></div><button class="order-button" data-service="${s.id}">Request</button></div>`).join('');
+  $$('[data-service]').forEach(btn=>btn.addEventListener('click',()=>createOrder(btn.dataset.service)));
+}
+async function createOrder(id){ const s=services.find(x=>x.id===id); try{const response=await fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json','X-Room-Token':roomToken},body:JSON.stringify({room:'302',service_id:id,quantity:1})}); const data=await response.json(); if(!response.ok) throw new Error(data.error); orders.unshift({id:data.order.id,icon:s.icon,name:s.name,detail:`1 request · Room 302`,status:data.order.status,tone:'pending',time:data.order.created_at}); persist(); renderOrders(); renderStaff(); switchView('orders'); showToast(`${s.name} requested — saved to pilot API.`);}catch(error){showToast('API unavailable — demo order kept locally.'); const order={id:`HB-${1043+orders.length}`,icon:s.icon,name:s.name,detail:`1 request · Room 302`,status:'New request',tone:'pending',time:'Just now'}; orders.unshift(order);persist();renderOrders();renderStaff();switchView('orders');} }
+function renderOrders(){ $('#ordersList').innerHTML=orders.map(o=>`<div class="order-card"><div class="service-icon">${o.icon}</div><div><h3>${o.name}</h3><div class="order-meta">${o.detail} · ${o.id} · ${o.time}</div></div><span class="status ${o.tone}">${o.status}</span></div>`).join(''); }
+function renderMessages(){ $('#messages').innerHTML=messages.map(m=>`<div class="message ${m.mine?'mine':''}"><small>${m.name}</small><p>${escapeHtml(m.original)}</p><p class="translated">${escapeHtml(m.translated)}</p></div>`).join(''); $('#messages').scrollTop=$('#messages').scrollHeight; }
+function escapeHtml(s){return s.replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
+function replyTo(text){ const lower=text.toLowerCase(); let translated='Cảm ơn bạn. Đội ngũ của chúng tôi sẽ hỗ trợ bạn ngay.'; if(lower.includes('breakfast')) translated='Bữa sáng được phục vụ từ 07:00 đến 10:30 tại Riverside Kitchen.'; if(lower.includes('air conditioning')) translated='Tôi đã báo bộ phận kỹ thuật. Nhân viên sẽ lên phòng trong khoảng 10 phút.'; if(lower.includes('towel')) translated='Tất nhiên rồi. Nhân viên sẽ mang thêm khăn lên trong khoảng 10 phút.'; messages.push({mine:false,name:'Linh',original:translated,translated:text}); persist(); renderMessages(); }
+async function sendMessage(text){ if(!text.trim()) return; try{const response=await fetch('/api/messages',{method:'POST',headers:{'Content-Type':'application/json','X-Room-Token':roomToken},body:JSON.stringify({room:'302',text})}); const data=await response.json(); if(!response.ok) throw new Error(data.error); messages.push(...data.messages); persist(); renderMessages();}catch(error){messages.push({mine:true,name:'You',original:text,translated:'Đang dịch sang tiếng Việt…'});persist();renderMessages();setTimeout(()=>replyTo(text),700);} }
+function renderStaff(){ const open=orders.filter(o=>o.status!=='Completed').length; $('#openCount').textContent=open+2; const items=[{initial:'AM',name:'Ana Müller',room:'Room 412',text:'Could we get two more pillows?',tag:'Housekeeping',time:'2 min ago'},{initial:'JK',name:'Joon Kim',room:'Room 208',text:'Is it possible to book a taxi for 6pm?',tag:'Concierge',time:'5 min ago'},{initial:'SC',name:'Sofia Costa',room:'Room 517',text:'The air conditioning is making a noise.',tag:'Maintenance',time:'8 min ago'}]; $('#staffInbox').innerHTML=items.map(i=>`<div class="inbox-item"><div class="avatar">${i.initial}</div><div class="inbox-item-content"><b>${i.name} · ${i.room}</b><p>${i.text}</p><time>${i.time}</time></div><span class="tag">${i.tag}</span></div>`).join(''); }
+$$('[data-view]').forEach(btn=>btn.addEventListener('click',()=>switchView(btn.dataset.view)));
+$$('.mode-tab').forEach(tab=>tab.addEventListener('click',()=>{ if(tab.dataset.mode==='staff'&&!staffToken){openStaffLogin();return;} $$('.mode-tab').forEach(t=>t.classList.remove('active')); tab.classList.add('active'); const staff=tab.dataset.mode==='staff'; $('#guestView').classList.toggle('active-view',!staff); $('#staffView').classList.toggle('active-view',staff); $$('.view').filter(v=>v.id!=='guestView'&&v.id!=='staffView').forEach(v=>v.classList.remove('active-view')); if(staff) loadStaffInbox(); }));
+$('#chatForm').addEventListener('submit',e=>{e.preventDefault();sendMessage($('#chatInput').value);$('#chatInput').value='';});
+$$('[data-message]').forEach(btn=>btn.addEventListener('click',()=>{ $('#chatInput').value=btn.dataset.message; $('#chatInput').focus(); }));
+$('#helpButton').addEventListener('click',()=>showToast('For urgent help, call +84 24 555 0199.'));
+$('#languageButton').addEventListener('click',()=>showToast('Language selector demo: English · Tiếng Việt · 日本語 · 한국어'));
+$('#staffFilter').addEventListener('click',()=>showToast('Department filter demo — all departments selected.'));
+const modal=$('#onboardingModal');
+function closeOnboarding(){ modal.classList.remove('open'); modal.setAttribute('aria-hidden','true'); }
+$('#openOnboarding').addEventListener('click',()=>{modal.classList.add('open');modal.setAttribute('aria-hidden','false');});
+$('#closeOnboarding').addEventListener('click',closeOnboarding);
+modal.addEventListener('click',e=>{if(e.target===modal) closeOnboarding();});
+$$('.next-step').forEach(btn=>btn.addEventListener('click',()=>{const current=modal.querySelector('.modal-step.active');const next=modal.querySelector(`[data-step="${Number(current.dataset.step)+1}"]`);if(next){current.classList.remove('active');next.classList.add('active');}}));
+$$('.language-option').forEach(btn=>btn.addEventListener('click',()=>{$$('.language-option').forEach(x=>x.classList.remove('selected'));btn.classList.add('selected');}));
+$$('.arrival-action').forEach(btn=>btn.addEventListener('click',()=>{closeOnboarding();switchView(btn.dataset.view);}));
+async function hydrateFromApi(){ try{if(!roomToken){const sessionResponse=await fetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:'302',language:'en'})});const sessionData=await sessionResponse.json();if(!sessionResponse.ok) throw new Error(sessionData.error);roomToken=sessionData.session.token;sessionStorage.setItem('hb-room-token',roomToken);} const [serviceResponse,orderResponse,messageResponse]=await Promise.all([fetch('/api/services'),fetch('/api/orders?room=302'),fetch('/api/messages?room=302')]); if(!serviceResponse.ok||!orderResponse.ok||!messageResponse.ok) throw new Error('API error'); const serviceData=await serviceResponse.json(); const orderData=await orderResponse.json(); const messageData=await messageResponse.json(); services.splice(0,services.length,...serviceData.services); orders=orderData.orders.map(o=>{const s=services.find(x=>x.id===o.service_id)||{};return {id:o.id,icon:s.icon||'✦',name:s.name||o.service_id,detail:`${o.quantity} request · Room ${o.room}`,status:o.status,tone:o.status==='Completed'?'':'pending',time:o.created_at};}); messages=messageData.messages; renderServices();renderOrders();renderMessages();renderStaff();showToast('Connected to Hotel Bridge pilot API.'); }catch(error){showToast('Demo mode — pilot API not connected.');} }
+$('#staffLoginForm').addEventListener('submit',async e=>{e.preventDefault();try{await staffLogin($('#staffUsername').value,$('#staffPassword').value);}catch(error){showToast(error.message);}});
+$('#closeStaffLogin').addEventListener('click',closeStaffLogin);
+$('#staffLoginModal').addEventListener('click',e=>{if(e.target.id==='staffLoginModal')closeStaffLogin();});
+renderServices(); renderOrders(); renderMessages(); renderStaff();
+hydrateFromApi();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
