@@ -21,6 +21,18 @@
 - `GET /api/conversations/{id}/messages?sessionToken=...` — read messages for the guest's conversation.
 - `POST /api/conversations/{id}/messages` — persist a guest message with original and translated fields.
 
+## Staff chat
+
+- `GET /api/management/conversations` — list guest conversations for staff.
+- `GET /api/management/conversations/{id}/messages` — read a conversation as staff.
+- `POST /api/management/conversations/{id}/messages` — send a staff reply.
+
+Management chat endpoints require the pilot header:
+
+```text
+X-Staff-Role: front_desk
+```
+
 Message responses preserve both forms:
 
 ```json

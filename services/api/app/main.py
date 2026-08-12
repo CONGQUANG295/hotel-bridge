@@ -98,6 +98,12 @@ class MessageRequest(BaseModel):
     targetLocale: str = Field(default="vi", min_length=2, max_length=10)
 
 
+class StaffMessageRequest(BaseModel):
+    originalText: str = Field(min_length=1, max_length=2000)
+    sourceLocale: str = Field(default="vi", min_length=2, max_length=10)
+    targetLocale: str = Field(default="en", min_length=2, max_length=10)
+
+
 def order_dict(row: sqlite3.Row) -> dict:
     return {"id": row["id"], "roomNumber": row["room_number"], "serviceId": row["service_id"], "status": row["status"], "quantity": row["quantity"], "note": row["note"], "dueAt": row["due_at"], "assignedRole": row["assigned_role"], "createdAt": row["created_at"], "updatedAt": row["updated_at"]}
 
@@ -151,7 +157,7 @@ def create_order(payload: OrderRequest) -> dict:
 
 
 @app.get("/api/orders")
-def list_orders(sessionToken: str | None = Query(default=None), x_staff_role: Role | None = Header(default=None)) -> dict:
+def list_orders(sessionToken: str | None = None, x_staff_role: Role | None = Header(default=None)) -> dict:
     with db() as connection:
         if sessionToken:
             session = require_session(connection, sessionToken)
@@ -224,6 +230,45 @@ def send_message(conversation_id: str, payload: MessageRequest) -> dict:
         connection.execute("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (message_id, conversation_id, "guest", payload.originalText, translated, payload.sourceLocale, payload.targetLocale, timestamp))
         connection.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (timestamp, conversation_id))
         connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("message", message_id, "created", "guest", timestamp))
+        row = connection.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
+    return message_dict(row)
+
+
+@app.get("/api/management/conversations")
+def management_conversations(x_staff_role: Role | None = Header(default=None)) -> dict:
+    if not x_staff_role:
+        raise HTTPException(status_code=401, detail={"code": "STAFF_AUTH_REQUIRED", "message": "Staff role header is required"})
+    with db() as connection:
+        rows = connection.execute("SELECT c.*, (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count FROM conversations c ORDER BY c.updated_at DESC").fetchall()
+    return {"conversations": [{"id": row["id"], "roomNumber": row["room_number"], "messageCount": row["message_count"], "createdAt": row["created_at"], "updatedAt": row["updated_at"]} for row in rows]}
+
+
+@app.get("/api/management/conversations/{conversation_id}/messages")
+def management_messages(conversation_id: str, x_staff_role: Role | None = Header(default=None)) -> dict:
+    if not x_staff_role:
+        raise HTTPException(status_code=401, detail={"code": "STAFF_AUTH_REQUIRED", "message": "Staff role header is required"})
+    with db() as connection:
+        conversation = connection.execute("SELECT id FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
+        if not conversation:
+            raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation does not exist"})
+        rows = connection.execute("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", (conversation_id,)).fetchall()
+    return {"messages": [message_dict(row) for row in rows]}
+
+
+@app.post("/api/management/conversations/{conversation_id}/messages", status_code=201)
+def management_send_message(conversation_id: str, payload: StaffMessageRequest, x_staff_role: Role | None = Header(default=None)) -> dict:
+    if not x_staff_role:
+        raise HTTPException(status_code=401, detail={"code": "STAFF_AUTH_REQUIRED", "message": "Staff role header is required"})
+    with db() as connection:
+        conversation = connection.execute("SELECT id FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
+        if not conversation:
+            raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation does not exist"})
+        timestamp = now().isoformat()
+        message_id = f"MSG-{secrets.token_hex(4).upper()}"
+        translated = payload.originalText if payload.sourceLocale == payload.targetLocale else f"[demo translation → {payload.targetLocale}] {payload.originalText}"
+        connection.execute("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (message_id, conversation_id, "staff", payload.originalText, translated, payload.sourceLocale, payload.targetLocale, timestamp))
+        connection.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (timestamp, conversation_id))
+        connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("message", message_id, f"created:{x_staff_role}", x_staff_role, timestamp))
         row = connection.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
     return message_dict(row)
 
