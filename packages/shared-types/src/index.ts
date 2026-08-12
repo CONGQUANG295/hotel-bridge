@@ -4,5 +4,7 @@ export type OrderStatus = 'NEW' | 'ACCEPTED' | 'IN_PROGRESS' | 'READY' | 'DELIVE
 export interface Service { id: string; name: string; localizedName: string; department: StaffRole; etaMinutes: number; priceLabel: string; }
 export interface GuestSession { token: string; roomNumber: string; locale: string; expiresAt: string; }
 export interface Order { id: string; roomNumber: string; serviceId: string; status: OrderStatus; quantity: number; note: string; dueAt: string; assignedRole: StaffRole; createdAt: string; updatedAt: string; }
+export interface ChatMessage { id: string; conversationId: string; sender: 'guest' | 'staff'; originalText: string; translatedText: string; sourceLocale: string; targetLocale: string; createdAt: string; }
+export interface Conversation { id: string; roomNumber: string; createdAt: string; updatedAt: string; }
 export interface StaffUser { id: string; displayName: string; role: StaffRole; department: string; }
 export interface ApiError { code: string; message: string; }

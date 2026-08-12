@@ -2,7 +2,7 @@
 
 Hotel Bridge là nền tảng dịch vụ khách sạn với **Guest Mobile App iOS/Android** là production target để phân phối qua App Store/Google Play. **Guest PWA** vẫn là kênh no-download cho khách vào bằng QR/NFC/link ngắn; **Management Dashboard** dành cho nhân viên.
 
-> **Current stage:** between backend pilot hardening and Mobile App MVP. Guest session, service catalog, SQLite order persistence, live guest order tracking, persisted guest chat, staff inbox, role-scoped status updates, audit log và Expo mobile order flow đã hoạt động. Bản dịch hiện là demo adapter có gắn nhãn; mobile chat, real authentication, real translation, realtime notifications, signed IPA/AAB và store submission chưa hoàn thành.
+> **Current stage:** between backend pilot hardening and Mobile App MVP. Guest session, service catalog, SQLite order persistence, live guest order tracking, persisted guest chat, staff inbox, role-scoped status updates, audit log và Expo mobile order flow đã hoạt động. Bản dịch hiện là demo adapter có gắn nhãn; mobile session persistence/deep links, real authentication, real translation, realtime notifications, signed IPA/AAB và store submission chưa hoàn thành.
 
 ## Architecture
 

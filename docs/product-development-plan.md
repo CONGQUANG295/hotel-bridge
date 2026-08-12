@@ -31,12 +31,12 @@ The canonical source is `/opt/data/source-codes-v3`. The project is between **Ph
 - Guest chat persistence.
 - Staff chat inbox and reply.
 - Guest PWA real API flow.
-- Expo mobile room/session → services → order → tracking flow.
-- Expo iOS/Android configuration and bundle exports.
+- Expo mobile flow: room/session → services → order → tracking → chat.
+- iOS/Android bundle export.
 
 ### Not completed
 
-- Mobile chat and mobile session persistence/deep links.
+- Mobile session persistence and deep links.
 - Offline/error/retry UX.
 - Real staff authentication.
 - QR/stay validation from PMS.
