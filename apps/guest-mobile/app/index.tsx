@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Linking from 'expo-linking';
 import type { ChatMessage, Conversation, GuestSession, Order, Service } from '@hotel-bridge/shared-types';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.2.2:8000';
+const SESSION_STORAGE_KEY = 'hotel-bridge:guest-session';
 
 function statusLabel(status: Order['status']) {
   return status.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, letter => letter.toUpperCase());
@@ -19,6 +22,51 @@ export default function GuestMobileHome() {
   const [loading, setLoading] = useState(true);
   const [chatLoading, setChatLoading] = useState(false);
   const [error, setError] = useState('');
+  const [restoring, setRestoring] = useState(true);
+
+  async function persistSession(active: GuestSession) {
+    await AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(active));
+  }
+
+  async function clearStoredSession() {
+    await AsyncStorage.removeItem(SESSION_STORAGE_KEY);
+    setSession(null); setConversation(null); setMessages([]); setOrders([]);
+  }
+
+  async function hydrateSession(roomFromLink?: string) {
+    try {
+      const stored = await AsyncStorage.getItem(SESSION_STORAGE_KEY);
+      if (!stored) return;
+      const active: GuestSession = JSON.parse(stored);
+      if (new Date(active.expiresAt).getTime() <= Date.now() || (roomFromLink && active.roomNumber !== roomFromLink)) {
+        await AsyncStorage.removeItem(SESSION_STORAGE_KEY); return;
+      }
+      const servicesResponse = await fetch(`${API_URL}/api/services`);
+      if (!servicesResponse.ok) throw new Error('Could not load hotel services');
+      setSession(active); setServices((await servicesResponse.json()).services);
+    } catch (caught) { await AsyncStorage.removeItem(SESSION_STORAGE_KEY); setError(caught instanceof Error ? caught.message : 'Could not restore room session'); }
+    finally { setRestoring(false); }
+  }
+
+  useEffect(() => {
+    const roomFromUrl = (url?: string | null) => {
+      if (!url) return undefined;
+      const match = url.match(/(?:room\/|room=)([A-Za-z0-9-]+)/i);
+      return match?.[1];
+    };
+    const initialize = async () => {
+      const initialUrl = await Linking.getInitialURL();
+      const room = roomFromUrl(initialUrl);
+      if (room) setRoomNumber(room);
+      await hydrateSession(room);
+    };
+    void initialize();
+    const subscription = Linking.addEventListener('url', event => {
+      const room = roomFromUrl(event.url);
+      if (room) { setRoomNumber(room); void clearStoredSession(); }
+    });
+    return () => subscription.remove();
+  }, []);
 
   async function startStay() {
     setLoading(true); setError('');
@@ -28,7 +76,7 @@ export default function GuestMobileHome() {
       const active: GuestSession = await sessionResponse.json();
       const servicesResponse = await fetch(`${API_URL}/api/services`);
       if (!servicesResponse.ok) throw new Error('Could not load hotel services');
-      setSession(active); setServices((await servicesResponse.json()).services); setOrders([]); setConversation(null); setMessages([]);
+      setSession(active); await persistSession(active); setServices((await servicesResponse.json()).services); setOrders([]); setConversation(null); setMessages([]);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not connect to Hotel Bridge'); }
     finally { setLoading(false); }
   }
@@ -101,7 +149,7 @@ export default function GuestMobileHome() {
     <Text style={styles.title}>Your stay, made simple.</Text>
     <Text style={styles.subtitle}>Request hotel services and chat with the hotel from your phone.</Text>
 
-    {!session ? <View style={styles.card}><Text style={styles.heading}>Start your stay</Text><Text style={styles.label}>Room number</Text><TextInput value={roomNumber} onChangeText={setRoomNumber} keyboardType="number-pad" placeholder="302" style={styles.input} /><Pressable style={styles.primary} onPress={() => void startStay()} disabled={loading || !roomNumber.trim()}><Text style={styles.primaryText}>{loading ? 'Connecting…' : 'Enter hotel app'}</Text></Pressable>{error ? <Text style={styles.error}>{error}</Text> : null}<Text style={styles.hint}>For local testing on Android emulator, the API defaults to 10.0.2.2:8000.</Text></View> : <>
+    {!session ? <View style={styles.card}><Text style={styles.heading}>{restoring ? 'Restoring your stay…' : 'Start your stay'}</Text><Text style={styles.label}>Room number</Text><TextInput value={roomNumber} onChangeText={setRoomNumber} keyboardType="number-pad" placeholder="302" style={styles.input} /><Pressable style={styles.primary} onPress={() => void startStay()} disabled={loading || restoring || !roomNumber.trim()}><Text style={styles.primaryText}>{restoring || loading ? 'Connecting…' : 'Enter hotel app'}</Text></Pressable>{error ? <Text style={styles.error}>{error}</Text> : null}<Text style={styles.hint}>Deep link example: hotelbridge://room/302. Sessions are stored securely on this device until they expire.</Text></View> : <>
       <View style={styles.sessionBar}><Text style={styles.sessionText}>Room {session.roomNumber}</Text><Text style={styles.live}>● Connected</Text></View>
       <Text style={styles.sectionTitle}>Hotel services</Text>
       {loading ? <ActivityIndicator /> : services.map(service => <View style={styles.service} key={service.id}><View style={styles.serviceCopy}><Text style={styles.serviceName}>{service.name}</Text><Text style={styles.serviceMeta}>{service.localizedName} · {service.etaMinutes} min</Text><Text style={styles.price}>{service.priceLabel}</Text></View><Pressable style={styles.secondary} onPress={() => void requestService(service)}><Text style={styles.secondaryText}>Request</Text></Pressable></View>)}
