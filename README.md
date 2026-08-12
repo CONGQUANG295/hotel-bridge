@@ -1,8 +1,8 @@
 # Hotel Bridge
 
-Hotel Bridge là nền tảng dịch vụ khách sạn **không cần khách tải app**. Khách truy cập Guest PWA bằng QR/NFC/link ngắn, chọn ngôn ngữ, chat với khách sạn và gọi dịch vụ trực tiếp từ phòng. Nhân viên xử lý yêu cầu trên Management Dashboard.
+Hotel Bridge là nền tảng dịch vụ khách sạn với **Guest Mobile App iOS/Android** là production target để phân phối qua App Store/Google Play. **Guest PWA** vẫn là kênh no-download cho khách vào bằng QR/NFC/link ngắn; **Management Dashboard** dành cho nhân viên.
 
-> **Current stage:** pilot vertical slice. Guest session, service catalog, SQLite order persistence, live guest order tracking, persisted guest chat, staff inbox, role-scoped status updates và audit log đã hoạt động. Bản dịch hiện là demo adapter có gắn nhãn; PMS, POS, translation provider thật và realtime notification chưa tích hợp.
+> **Current stage:** between backend pilot hardening and Mobile App MVP. Guest session, service catalog, SQLite order persistence, live guest order tracking, persisted guest chat, staff inbox, role-scoped status updates, audit log và Expo mobile order flow đã hoạt động. Bản dịch hiện là demo adapter có gắn nhãn; mobile chat, real authentication, real translation, realtime notifications, signed IPA/AAB và store submission chưa hoàn thành.
 
 ## Architecture
 
@@ -18,7 +18,7 @@ Repository layout:
 apps/
   guest-web/          Guest-facing Next.js web app
   management-web/    Staff operations dashboard
-  guest-mobile/      Expo mobile foundation for future use
+  guest-mobile/      Expo/React Native Guest Mobile App (iOS/Android store target)
 services/api/        FastAPI backend
 packages/
   shared-types/      Shared TypeScript domain types
@@ -160,10 +160,11 @@ The API smoke flow should cover: session creation, authenticated order creation,
 
 ## Product roadmap
 
-1. **Discovery:** validate hotel services, departments, supported languages and SLAs with a pilot hotel.
-2. **UX prototype:** validate QR → language → chat/order → status on mobile screens.
-3. **MVP pilot:** connect real translation, realtime chat, QR-per-room sessions, notifications and staff authentication.
-4. **Operations integration:** PMS, POS/room charge, WhatsApp/Zalo, captive portal and online payment.
-5. **Scale:** multi-property, analytics, voice translation, loyalty and optional native apps.
+1. **Pilot discovery:** validate hotel services, departments, supported languages, SLAs and store/business ownership.
+2. **UX prototype:** validate QR → language → chat/order → status on PWA and app launch/deep link → session → order → status → chat on iOS/Android.
+3. **MVP pilot + mobile:** connect API persistence, guest/staff chat, mobile app flow, PWA flow, auth pilot and audit.
+4. **Hardening/store preparation:** real staff auth, QR/PMS session validation, notifications, offline states, EAS preview builds and physical device QA.
+5. **Store release/integration:** signed IPA/AAB, App Store/Google Play metadata, PMS, POS/room charge, WhatsApp/Zalo, captive portal and online payment.
+6. **Scale:** multi-property, analytics, voice translation, loyalty and white-label.
 
 See [`docs/architecture.md`](docs/architecture.md), [`docs/api-contract.md`](docs/api-contract.md) and the legacy [`prototype/v3-legacy/hotel-bridge-analysis-and-plan.md`](prototype/v3-legacy/hotel-bridge-analysis-and-plan.md) for more detail.

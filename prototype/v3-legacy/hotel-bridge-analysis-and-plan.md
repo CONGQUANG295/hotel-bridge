@@ -7,7 +7,12 @@ Xây dựng nền tảng giúp khách sạn giải quyết hai vấn đề chín
 1. Rào cản ngôn ngữ giữa khách và nhân viên.
 2. Khách có thể gọi dịch vụ trực tiếp từ phòng mà không cần gọi lễ tân hoặc cài ứng dụng.
 
-Định hướng sản phẩm: **QR/NFC/Wi-Fi → mở PWA ngay → chọn ngôn ngữ → chat/order → nhân viên xử lý trên dashboard**.
+Định hướng sản phẩm gồm hai kênh khách hàng dùng chung backend:
+
+- **Guest Mobile App iOS/Android:** app production cho khách quay lại, loyalty và phân phối qua App Store/Google Play.
+- **Guest PWA:** kênh no-download cho khách ngắn ngày qua QR/NFC/Wi-Fi/link ngắn.
+
+Cả hai kênh dùng chung session, chat, service catalog, order và tracking; nhân viên xử lý trên Staff Dashboard.
 
 ## 2. Đối tượng sử dụng
 
@@ -25,19 +30,32 @@ Xây dựng nền tảng giúp khách sạn giải quyết hai vấn đề chín
 
 ## 3. Sản phẩm đề xuất
 
-### Guest PWA
+## Guest Mobile App iOS/Android
 
-Khách truy cập bằng QR code trên thẻ phòng, trong phòng, TV, menu, thang máy hoặc qua Wi-Fi captive portal.
+App production dùng Expo/React Native, dành cho khách quay lại và phân phối qua App Store/Google Play.
 
-Tính năng MVP:
+MVP:
+- Room/session onboarding.
+- Chọn ngôn ngữ.
+- Service catalog.
+- Tạo và theo dõi order.
+- Chat đa ngôn ngữ.
+- Loading, empty, offline và error states.
+- Deep link từ QR/link ngắn.
+
+## Guest PWA
+
+Khách truy cập bằng QR code trên thẻ phòng, trong phòng, TV, menu, thang máy hoặc qua Wi-Fi captive portal. PWA phục vụ khách không muốn tải app và dùng chung API contract với Mobile App.
+
+MVP:
 - Chọn ngôn ngữ.
 - Xác định phòng bằng mã phiên/QR.
 - Chat với khách sạn.
-- Dịch hai chiều giữa ngôn ngữ khách và ngôn ngữ khách sạn.
+- Dịch hai chiều.
 - Danh sách dịch vụ và giá.
 - Tạo order.
 - Theo dõi trạng thái order.
-- Xem thông tin khách sạn và hỗ trợ khẩn cấp.
+- Hỗ trợ khẩn cấp.
 
 ### Staff Dashboard
 
@@ -102,38 +120,29 @@ Tính năng MVP:
 5. Nút fallback sang WhatsApp/Zalo.
 6. Cho phép khách thêm PWA vào Home Screen, nhưng không bắt buộc.
 
-Native app chỉ nên phát triển sau khi có khách quay lại thường xuyên hoặc khách sạn cần chương trình loyalty.
+Mobile app là production target cho khách quay lại và loyalty; PWA vẫn là kênh no-download bắt buộc cho khách ngắn ngày.
 
 ## 7. Kiến trúc đề xuất
 
 ```text
-Guest PWA
-  ├── Chat đa ngôn ngữ
-  ├── Service catalog
-  ├── Order tracking
-  └── Room authentication
-          │
-          ▼
-Backend API
-  ├── Translation service
-  ├── Order management
-  ├── Notification service
-  ├── PMS/POS integration
-  └── Payment integration
-          │
-          ▼
-Staff Dashboard
+Guest Mobile App iOS/Android ─┐
+Guest PWA ─────────────────────┼── Backend API ── Database
+Staff Dashboard ──────────────┘
 ```
+
+Mobile App và Guest PWA dùng chung API contract; PWA là no-download acquisition channel, Mobile App là store-distributed product.
 
 ### Stack dự kiến
 
-- Guest app: Next.js PWA hoặc React PWA.
+- Guest app: Expo/React Native + TypeScript, targeting iOS and Android stores.
+- Guest PWA: Next.js/React, no-download channel.
 - Staff dashboard: React/Next.js.
-- Backend: Node.js/NestJS hoặc FastAPI.
-- Database: PostgreSQL.
-- Realtime: WebSocket hoặc Supabase Realtime.
-- Translation: Google Cloud Translation, DeepL hoặc AI model.
+- Backend: FastAPI.
+- Pilot database: SQLite; production target: PostgreSQL.
+- Realtime: WebSocket/SSE after pilot; polling is acceptable for current MVP.
+- Translation: provider adapter; current implementation uses labelled demo adapter.
 - Payment: payment gateway theo thị trường.
+- Distribution: Expo EAS for preview, signed production builds and store submission.
 
 MVP prototype hiện tại dùng HTML/CSS/JavaScript thuần để chạy ngay không cần cài dependency. Đây là bản UX prototype có state local, chưa kết nối backend production.
 
@@ -157,79 +166,107 @@ Kết quả:
 - Danh sách ngôn ngữ ưu tiên.
 - Quy trình escalation.
 
-### Giai đoạn 1 — UX prototype
+### Giai đoạn 1 — UX prototype đa kênh
 
-Mục tiêu: kiểm tra trải nghiệm trước khi xây backend.
+Mục tiêu: kiểm tra cùng một journey trên PWA và Mobile App.
 
 Công việc:
-- Guest flow: QR → language → chat/order.
-- Staff flow: incoming request → translate → assign → complete.
-- Test trên điện thoại nhỏ.
+- PWA: QR/NFC/Wi-Fi → room context → language → chat/order → status.
+- Mobile: app launch/deep link → room/session → service → order → status.
+- Staff: incoming request → translate → assign → complete.
+- Test trên iPhone/Android screen nhỏ.
 - Kiểm tra nội dung dài ở nhiều ngôn ngữ.
-- Test QR/NFC placement trong phòng.
+- Test QR/NFC placement và deep link.
 
 Kết quả:
-- Prototype tương tác.
+- PWA prototype tương tác.
+- Mobile Expo prototype chạy được.
 - Bộ UI components.
 - Acceptance criteria cho MVP.
 
-### Giai đoạn 2 — MVP pilot
+### Giai đoạn 2 — MVP pilot backend + mobile
 
-Mục tiêu: chạy thật tại một khách sạn với các dịch vụ cơ bản.
+Mục tiêu: có một vertical slice dùng được trên PWA, Mobile App và Staff Dashboard.
 
 Công việc:
 - Xây backend và database.
 - Tạo room/session authentication.
-- Realtime chat.
-- Translation adapter.
 - Service/order management.
+- Guest chat và Staff chat.
+- Translation adapter có nhãn demo khi chưa có provider thật.
 - Staff dashboard có phân quyền.
-- Web push/email notification.
-- QR riêng theo phòng.
+- Mobile app có room onboarding, service catalog, order tracking và chat.
+- PWA dùng chung API contract.
 - Audit log.
+- API smoke, browser check và iOS/Android bundle export.
 
 Kết quả:
-- PWA chạy production.
+- Pilot backend chạy SQLite.
+- PWA chạy được flow guest.
+- Mobile app có Expo vertical slice.
 - Dashboard cho nhân viên.
-- Báo cáo order và thời gian phản hồi.
 
-### Giai đoạn 3 — Tích hợp vận hành
+### Giai đoạn 3 — Hardening và store preparation
 
-Mục tiêu: giảm thao tác nhập liệu thủ công.
+Mục tiêu: đưa mobile từ bundle demo lên preview build có thể cài trên thiết bị.
 
 Công việc:
-- Tích hợp PMS để xác nhận phòng đang lưu trú.
-- Tích hợp POS/room charge.
-- Tích hợp WhatsApp/Zalo.
+- PostgreSQL migration path.
+- Staff login/bearer auth.
+- QR/stay-scoped session issuance.
+- Push notification/realtime transport.
+- Mobile offline/error/retry states.
+- Mobile deep links và persisted session.
+- App icon, splash, privacy/support URLs.
+- EAS project, development/preview build.
+- QA trên iPhone thật và Android thật.
+
+Kết quả:
+- Preview build cài được qua TestFlight/internal distribution.
+- Pilot security and persistence checks pass.
+
+### Giai đoạn 4 — Store release và tích hợp vận hành
+
+Mục tiêu: phát hành app và giảm thao tác vận hành thủ công.
+
+Công việc:
+- Signed iOS/TestFlight build.
+- Signed Android AAB/internal testing.
+- App Store Connect và Google Play metadata.
+- PMS xác nhận phòng đang lưu trú.
+- POS/room charge hoặc payment.
+- WhatsApp/Zalo.
 - Wi-Fi captive portal.
-- Thanh toán online.
 - Quản lý nhiều chi nhánh.
 
 Kết quả:
-- Order có thể charge trực tiếp vào phòng hoặc thanh toán online.
-- Một dashboard quản lý nhiều bộ phận và cơ sở.
+- App có thể submit store.
+- Order có thể charge trực tiếp hoặc thanh toán online.
+- Dashboard quản lý nhiều bộ phận/cơ sở.
 
-### Giai đoạn 4 — Tối ưu và mở rộng
+### Giai đoạn 5 — Tối ưu và mở rộng
 
 Mục tiêu: tăng tỷ lệ sử dụng và doanh thu dịch vụ.
 
 Công việc:
 - Voice translation.
-- AI đề xuất dịch vụ phù hợp.
+- AI đề xuất dịch vụ.
 - Loyalty và hồ sơ khách quay lại.
-- Native app cho khách thường xuyên.
-- Analytics về doanh thu, SLA và mức độ hài lòng.
-- White-label theo thương hiệu khách sạn.
+- Analytics doanh thu, SLA và hài lòng.
+- White-label.
+- Multi-property tenancy.
 
 ## 9. Tiêu chí thành công MVP
 
-- Khách mở được dịch vụ trong dưới 10 giây sau khi quét QR.
-- Không cần tải app hoặc tạo tài khoản dài.
+- Guest mở được dịch vụ trong dưới 10 giây sau khi quét QR hoặc mở app.
+- Mobile preview build cài được trên tối thiểu một iPhone và một Android.
+- Không cần tải app hoặc tạo tài khoản dài khi dùng PWA.
 - Nhân viên nhận được order trong vòng 5 giây.
-- Khách xem được trạng thái order rõ ràng.
+- Khách xem được trạng thái order rõ ràng trên PWA và Mobile App.
 - Nhân viên có thể xem bản gốc và bản dịch.
 - Tối thiểu 80% order pilot được xử lý mà không cần gọi điện.
 - Có log để truy vết mọi order và tin nhắn.
+- Signed IPA/AAB chỉ được đánh dấu đạt sau khi build bằng credentials thật; bundle export không thay thế store build.
 
 ## 10. Rủi ro và cách xử lý
 
@@ -242,13 +279,22 @@ Công việc:
 
 ## 11. Trạng thái source hiện tại
 
-Thư mục `source-codes/` chứa MVP prototype:
+Canonical source là thư mục `/opt/data/source-codes-v3`.
 
-- `index.html`: giao diện guest PWA và staff dashboard demo.
-- `styles.css`: giao diện responsive.
-- `app.js`: chat dịch mô phỏng, tạo order, cập nhật trạng thái và state local.
-- `manifest.webmanifest`: cấu hình PWA.
-- `sw.js`: service worker cache cơ bản.
-- `README.md`: hướng dẫn chạy và phạm vi prototype.
+- `apps/guest-mobile/`: Expo/React Native mobile app cho iOS/Android; đã có room session, service catalog, order creation, tracking và iOS/Android bundle export.
+- `apps/guest-web/`: Guest PWA đã kết nối API thật cho session, service, order, tracking và chat.
+- `apps/management-web/`: Staff Dashboard có order inbox, status update, conversation inbox và staff reply.
+- `services/api/`: FastAPI pilot backend với SQLite, session token, order, chat và audit.
+- `packages/shared-types/`: shared TypeScript contracts.
+- `prototype/v3-legacy/`: prototype cũ, giữ làm reference.
 
-Prototype hiện chưa phải production system. Bước kế tiếp là thay local state bằng backend API, database, dịch thuật thật, authentication và realtime transport.
+Trạng thái phát hành mobile:
+
+- Expo config resolve: **đã pass**.
+- iOS JavaScript bundle export: **đã pass**.
+- Android JavaScript bundle export: **đã pass**.
+- Signed IPA/AAB: **chưa có**.
+- Physical device QA: **chưa verify**.
+- App Store/Google Play submission: **chưa thực hiện**.
+
+Bước tiếp theo là hoàn thiện Mobile App MVP: chat mobile, session persistence/deep link, offline/error/retry states, app assets, EAS preview build và device QA. Không bắt đầu PMS/POS/payment trước khi Mobile/PWA pilot journey ổn định.
