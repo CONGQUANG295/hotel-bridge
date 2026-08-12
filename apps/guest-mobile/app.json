@@ -5,8 +5,9 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "scheme": "hotelbridge",
-    "ios": {"bundleIdentifier": "com.hotelbridge.guest"},
-    "android": {"package": "com.hotelbridge.guest"},
+    "userInterfaceStyle": "light",
+    "ios": {"bundleIdentifier": "com.hotelbridge.guest", "supportsTablet": true},
+    "android": {"package": "com.hotelbridge.guest", "adaptiveIcon": {"backgroundColor": "#14251f"}},
     "plugins": ["expo-router"]
   }
 }

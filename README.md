@@ -64,11 +64,29 @@ Start the staff dashboard in another terminal:
 NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev:management
 ```
 
-URLs:
+For the Expo mobile app:
 
-- Guest web: <http://localhost:3000>
-- Management web: <http://localhost:3001>
-- API health: <http://localhost:8000/api/health>
+```bash
+npm --workspace apps/guest-mobile run start
+```
+
+Set the API URL for a physical device or a different emulator when needed:
+
+```bash
+EXPO_PUBLIC_API_URL=http://<YOUR-LAN-IP>:8000 npm --workspace apps/guest-mobile run start
+```
+
+The Android emulator default is `http://10.0.2.2:8000`. The iOS simulator normally uses `http://127.0.0.1:8000`.
+
+Mobile validation commands:
+
+```bash
+npm --workspace apps/guest-mobile run typecheck
+npm --workspace apps/guest-mobile run export:ios
+npm --workspace apps/guest-mobile run export:android
+```
+
+The Expo app currently implements the mobile guest vertical slice: room session, service catalog, order creation and live order tracking. The exports validate iOS/Android JavaScript bundles; they are not signed IPA/AAB store files. App Store/Google Play submission still requires Expo EAS credentials, signing, store metadata, privacy policy and real-device QA.
 
 The API creates the SQLite schema automatically. Runtime databases, `.env` files, caches and generated TypeScript build state are ignored by Git.
 

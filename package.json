@@ -1,7 +1,12 @@
 {
   "name": "hotel-bridge",
   "private": true,
-  "workspaces": ["apps/guest-web", "apps/management-web", "apps/guest-mobile", "packages/*"],
+  "workspaces": [
+    "apps/guest-web",
+    "apps/management-web",
+    "apps/guest-mobile",
+    "packages/*"
+  ],
   "scripts": {
     "dev:guest": "npm --workspace apps/guest-web run dev",
     "dev:management": "npm --workspace apps/management-web run dev",
@@ -9,5 +14,10 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
   },
-  "engines": {"node": ">=22"}
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "hermes-compiler": "^250829098.0.2"
+  }
 }
