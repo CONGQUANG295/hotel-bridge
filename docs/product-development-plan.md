@@ -37,7 +37,7 @@ The canonical source is `/opt/data/source-codes-v3`. The project is between **Ph
 ### Not completed
 
 - Mobile session persistence and deep links.
-- Offline/error/retry UX.
+- Offline/no-network detection and queued retry UX.
 - Real staff authentication.
 - QR/stay validation from PMS.
 - Real translation provider.

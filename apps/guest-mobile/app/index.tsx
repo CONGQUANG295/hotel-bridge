@@ -23,6 +23,7 @@ export default function GuestMobileHome() {
   const [chatLoading, setChatLoading] = useState(false);
   const [error, setError] = useState('');
   const [restoring, setRestoring] = useState(true);
+  const [chatRetry, setChatRetry] = useState(0);
 
   async function persistSession(active: GuestSession) {
     await AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(active));
@@ -41,10 +42,9 @@ export default function GuestMobileHome() {
       if (new Date(active.expiresAt).getTime() <= Date.now() || (roomFromLink && active.roomNumber !== roomFromLink)) {
         await AsyncStorage.removeItem(SESSION_STORAGE_KEY); return;
       }
-      const servicesResponse = await fetch(`${API_URL}/api/services`);
-      if (!servicesResponse.ok) throw new Error('Could not load hotel services');
-      setSession(active); setServices((await servicesResponse.json()).services);
-    } catch (caught) { await AsyncStorage.removeItem(SESSION_STORAGE_KEY); setError(caught instanceof Error ? caught.message : 'Could not restore room session'); }
+      setSession(active);
+      await loadServices();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not restore room session'); }
     finally { setRestoring(false); }
   }
 
@@ -68,17 +68,30 @@ export default function GuestMobileHome() {
     return () => subscription.remove();
   }, []);
 
+  async function loadServices() {
+    const response = await fetch(`${API_URL}/api/services`);
+    if (!response.ok) throw new Error('Could not load hotel services');
+    setServices((await response.json()).services);
+  }
+
   async function startStay() {
     setLoading(true); setError('');
     try {
       const sessionResponse = await fetch(`${API_URL}/api/guest-sessions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomNumber, locale: 'en' }) });
       if (!sessionResponse.ok) throw new Error('Could not start room session');
       const active: GuestSession = await sessionResponse.json();
-      const servicesResponse = await fetch(`${API_URL}/api/services`);
-      if (!servicesResponse.ok) throw new Error('Could not load hotel services');
-      setSession(active); await persistSession(active); setServices((await servicesResponse.json()).services); setOrders([]); setConversation(null); setMessages([]);
+      setSession(active); await persistSession(active); await loadServices(); setOrders([]); setConversation(null); setMessages([]);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not connect to Hotel Bridge'); }
-    finally { setLoading(false); }
+    finally { setLoading(false); setRestoring(false); }
+  }
+
+  async function retryConnection() {
+    setError('');
+    if (session) {
+      setLoading(true);
+      try { await loadServices(); } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not reconnect'); }
+      finally { setLoading(false); }
+    } else { await startStay(); }
   }
 
   async function requestService(service: Service) {
@@ -91,13 +104,16 @@ export default function GuestMobileHome() {
     } catch (caught) { Alert.alert('Request failed', caught instanceof Error ? caught.message : 'Could not send request'); }
   }
 
+  async function refreshOrders() {
+    if (!session) return;
+    const response = await fetch(`${API_URL}/api/orders?sessionToken=${encodeURIComponent(session.token)}`);
+    if (!response.ok) throw new Error('Could not refresh requests');
+    setOrders((await response.json()).orders);
+  }
+
   useEffect(() => {
     if (!session) return;
-    const refreshOrders = async () => {
-      const response = await fetch(`${API_URL}/api/orders?sessionToken=${encodeURIComponent(session.token)}`);
-      if (response.ok) setOrders((await response.json()).orders);
-    };
-    const timer = setInterval(() => void refreshOrders(), 5000);
+    const timer = setInterval(() => void refreshOrders().catch(() => undefined), 5000);
     return () => clearInterval(timer);
   }, [session]);
 
@@ -113,12 +129,12 @@ export default function GuestMobileHome() {
         const messagesResponse = await fetch(`${API_URL}/api/conversations/${created.id}/messages?sessionToken=${encodeURIComponent(session.token)}`);
         if (!messagesResponse.ok) throw new Error('Could not load hotel chat');
         if (!cancelled) { setConversation(created); setMessages((await messagesResponse.json()).messages); }
-      } catch (caught) { if (!cancelled) setError(caught instanceof Error ? caught.message : 'Could not start hotel chat'); }
+      } catch (caught) { if (!cancelled) { setError(caught instanceof Error ? caught.message : 'Could not start hotel chat'); } }
       finally { if (!cancelled) setChatLoading(false); }
     };
     void openChat();
     return () => { cancelled = true; };
-  }, [session]);
+  }, [session, chatRetry]);
 
   useEffect(() => {
     if (!session || !conversation) return;
@@ -149,7 +165,8 @@ export default function GuestMobileHome() {
     <Text style={styles.title}>Your stay, made simple.</Text>
     <Text style={styles.subtitle}>Request hotel services and chat with the hotel from your phone.</Text>
 
-    {!session ? <View style={styles.card}><Text style={styles.heading}>{restoring ? 'Restoring your stay…' : 'Start your stay'}</Text><Text style={styles.label}>Room number</Text><TextInput value={roomNumber} onChangeText={setRoomNumber} keyboardType="number-pad" placeholder="302" style={styles.input} /><Pressable style={styles.primary} onPress={() => void startStay()} disabled={loading || restoring || !roomNumber.trim()}><Text style={styles.primaryText}>{restoring || loading ? 'Connecting…' : 'Enter hotel app'}</Text></Pressable>{error ? <Text style={styles.error}>{error}</Text> : null}<Text style={styles.hint}>Deep link example: hotelbridge://room/302. Sessions are stored securely on this device until they expire.</Text></View> : <>
+    {!session ? <View style={styles.card}><Text style={styles.heading}>{restoring ? 'Restoring your stay…' : 'Start your stay'}</Text><Text style={styles.label}>Room number</Text><TextInput value={roomNumber} onChangeText={setRoomNumber} keyboardType="number-pad" placeholder="302" style={styles.input} /><Pressable style={styles.primary} onPress={() => void startStay()} disabled={loading || restoring || !roomNumber.trim()}><Text style={styles.primaryText}>{restoring || loading ? 'Connecting…' : 'Enter hotel app'}</Text></Pressable>{error ? <><Text style={styles.error}>{error}</Text><Pressable onPress={() => void retryConnection()}><Text style={styles.retry}>Try again</Text></Pressable></> : null}<Text style={styles.hint}>Deep link example: hotelbridge://room/302. Sessions are stored securely on this device until they expire.</Text></View> : <>
+      {error ? <View style={styles.errorBanner}><Text style={styles.error}>{error}</Text><Pressable onPress={() => { setError(''); setChatRetry(value => value + 1); void retryConnection(); }}><Text style={styles.retry}>Try again</Text></Pressable></View> : null}
       <View style={styles.sessionBar}><Text style={styles.sessionText}>Room {session.roomNumber}</Text><Text style={styles.live}>● Connected</Text></View>
       <Text style={styles.sectionTitle}>Hotel services</Text>
       {loading ? <ActivityIndicator /> : services.map(service => <View style={styles.service} key={service.id}><View style={styles.serviceCopy}><Text style={styles.serviceName}>{service.name}</Text><Text style={styles.serviceMeta}>{service.localizedName} · {service.etaMinutes} min</Text><Text style={styles.price}>{service.priceLabel}</Text></View><Pressable style={styles.secondary} onPress={() => void requestService(service)}><Text style={styles.secondaryText}>Request</Text></Pressable></View>)}
@@ -165,4 +182,4 @@ export default function GuestMobileHome() {
   </ScrollView></SafeAreaView>;
 }
 
-const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: '#f5f6f1' }, container: { padding: 24, gap: 16 }, eyebrow: { color: '#617269', fontSize: 11, fontWeight: '700', letterSpacing: 1.5 }, title: { color: '#14251f', fontSize: 36, fontWeight: '700', marginTop: 8 }, subtitle: { color: '#617269', fontSize: 16, lineHeight: 24 }, card: { backgroundColor: '#fff', borderRadius: 16, padding: 20, gap: 12, marginTop: 12 }, heading: { color: '#14251f', fontSize: 22, fontWeight: '700' }, label: { color: '#617269', fontSize: 13, fontWeight: '600' }, input: { borderColor: '#dce2dc', borderWidth: 1, borderRadius: 8, padding: 14, fontSize: 18, color: '#14251f' }, primary: { backgroundColor: '#14251f', borderRadius: 8, padding: 15, alignItems: 'center' }, primaryText: { color: '#fff', fontWeight: '700' }, hint: { color: '#8a958e', fontSize: 12, lineHeight: 18 }, error: { color: '#b34d42', fontSize: 13 }, sessionBar: { backgroundColor: '#dce9d7', borderRadius: 10, padding: 14, flexDirection: 'row', justifyContent: 'space-between' }, sessionText: { color: '#14251f', fontWeight: '700' }, live: { color: '#347047', fontSize: 13 }, sectionTitle: { color: '#14251f', fontSize: 24, fontWeight: '700', marginTop: 8 }, service: { backgroundColor: '#fff', borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, serviceCopy: { flex: 1, gap: 4 }, serviceName: { color: '#14251f', fontSize: 16, fontWeight: '700' }, serviceMeta: { color: '#74807a', fontSize: 12 }, price: { color: '#617269', fontSize: 12, fontWeight: '600' }, secondary: { borderColor: '#14251f', borderWidth: 1, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12 }, secondaryText: { color: '#14251f', fontWeight: '700' }, requestsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }, count: { color: '#617269', fontSize: 13 }, empty: { color: '#74807a' }, order: { backgroundColor: '#fff', borderRadius: 12, padding: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, status: { color: '#347047', fontWeight: '700', fontSize: 12 }, chatCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14, gap: 10 }, message: { borderRadius: 10, padding: 12, maxWidth: '92%', gap: 4 }, guestMessage: { backgroundColor: '#e7f0e3', alignSelf: 'flex-end' }, staffMessage: { backgroundColor: '#f0f2ef', alignSelf: 'flex-start' }, messageSender: { color: '#617269', fontSize: 11, fontWeight: '700' }, messageText: { color: '#14251f', fontSize: 15, lineHeight: 21 }, translation: { color: '#617269', fontSize: 13, fontStyle: 'italic', lineHeight: 18 }, composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 4 }, messageInput: { flex: 1, minHeight: 44, maxHeight: 100, borderColor: '#dce2dc', borderWidth: 1, borderRadius: 8, padding: 10, color: '#14251f' }, send: { backgroundColor: '#14251f', borderRadius: 8, paddingVertical: 13, paddingHorizontal: 15 }, sendText: { color: '#fff', fontWeight: '700' }, demoNote: { color: '#8a958e', fontSize: 11, lineHeight: 16 } });
+const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: '#f5f6f1' }, container: { padding: 24, gap: 16 }, eyebrow: { color: '#617269', fontSize: 11, fontWeight: '700', letterSpacing: 1.5 }, title: { color: '#14251f', fontSize: 36, fontWeight: '700', marginTop: 8 }, subtitle: { color: '#617269', fontSize: 16, lineHeight: 24 }, card: { backgroundColor: '#fff', borderRadius: 16, padding: 20, gap: 12, marginTop: 12 }, heading: { color: '#14251f', fontSize: 22, fontWeight: '700' }, label: { color: '#617269', fontSize: 13, fontWeight: '600' }, input: { borderColor: '#dce2dc', borderWidth: 1, borderRadius: 8, padding: 14, fontSize: 18, color: '#14251f' }, primary: { backgroundColor: '#14251f', borderRadius: 8, padding: 15, alignItems: 'center' }, primaryText: { color: '#fff', fontWeight: '700' }, hint: { color: '#8a958e', fontSize: 12, lineHeight: 18 }, error: { color: '#b34d42', fontSize: 13 }, retry: { color: '#14251f', fontWeight: '700', textDecorationLine: 'underline' }, errorBanner: { backgroundColor: '#fff0ed', borderRadius: 10, padding: 12, gap: 8 }, sessionBar: { backgroundColor: '#dce9d7', borderRadius: 10, padding: 14, flexDirection: 'row', justifyContent: 'space-between' }, sessionText: { color: '#14251f', fontWeight: '700' }, live: { color: '#347047', fontSize: 13 }, sectionTitle: { color: '#14251f', fontSize: 24, fontWeight: '700', marginTop: 8 }, service: { backgroundColor: '#fff', borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, serviceCopy: { flex: 1, gap: 4 }, serviceName: { color: '#14251f', fontSize: 16, fontWeight: '700' }, serviceMeta: { color: '#74807a', fontSize: 12 }, price: { color: '#617269', fontSize: 12, fontWeight: '600' }, secondary: { borderColor: '#14251f', borderWidth: 1, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12 }, secondaryText: { color: '#14251f', fontWeight: '700' }, requestsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }, count: { color: '#617269', fontSize: 13 }, empty: { color: '#74807a' }, order: { backgroundColor: '#fff', borderRadius: 12, padding: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, status: { color: '#347047', fontWeight: '700', fontSize: 12 }, chatCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14, gap: 10 }, message: { borderRadius: 10, padding: 12, maxWidth: '92%', gap: 4 }, guestMessage: { backgroundColor: '#e7f0e3', alignSelf: 'flex-end' }, staffMessage: { backgroundColor: '#f0f2ef', alignSelf: 'flex-start' }, messageSender: { color: '#617269', fontSize: 11, fontWeight: '700' }, messageText: { color: '#14251f', fontSize: 15, lineHeight: 21 }, translation: { color: '#617269', fontSize: 13, fontStyle: 'italic', lineHeight: 18 }, composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 4 }, messageInput: { flex: 1, minHeight: 44, maxHeight: 100, borderColor: '#dce2dc', borderWidth: 1, borderRadius: 8, padding: 10, color: '#14251f' }, send: { backgroundColor: '#14251f', borderRadius: 8, paddingVertical: 13, paddingHorizontal: 15 }, sendText: { color: '#fff', fontWeight: '700' }, demoNote: { color: '#8a958e', fontSize: 11, lineHeight: 16 } });
