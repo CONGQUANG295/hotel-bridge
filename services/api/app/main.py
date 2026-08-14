@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import sqlite3
@@ -114,6 +116,12 @@ class StaffLoginRequest(BaseModel):
     password: str = Field(min_length=8, max_length=256)
 
 
+class StayLinkRequest(BaseModel):
+    roomNumber: str = Field(min_length=1, max_length=20)
+    locale: str = Field(default="en", min_length=2, max_length=10)
+    expiresInMinutes: int = Field(default=60, ge=5, le=1440)
+
+
 class StaffMessageRequest(BaseModel):
     originalText: str = Field(min_length=1, max_length=2000)
     sourceLocale: str = Field(default="vi", min_length=2, max_length=10)
@@ -157,6 +165,45 @@ def require_staff(connection: sqlite3.Connection, authorization: str | None) -> 
     if not row:
         raise HTTPException(status_code=401, detail={"code": "INVALID_STAFF_TOKEN", "message": "Staff token is missing or expired"})
     return row
+
+
+def stay_link_secret() -> bytes:
+    secret = os.getenv("HOTEL_BRIDGE_STAY_LINK_SECRET")
+    if not secret:
+        raise HTTPException(status_code=503, detail={"code": "STAY_LINK_NOT_CONFIGURED", "message": "Stay-link signing is not configured"})
+    return secret.encode()
+
+
+def b64url(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode().rstrip("=")
+
+
+def unb64url(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def create_stay_link_token(room_number: str, locale: str, expires_in_minutes: int) -> tuple[str, str]:
+    expires_at = (now() + timedelta(minutes=expires_in_minutes)).isoformat()
+    payload = {"roomNumber": room_number, "locale": locale, "expiresAt": expires_at, "nonce": secrets.token_urlsafe(12)}
+    encoded = b64url(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+    signature = b64url(hmac.new(stay_link_secret(), encoded.encode(), hashlib.sha256).digest())
+    return f"{encoded}.{signature}", expires_at
+
+
+def verify_stay_link_token(token: str) -> dict:
+    try:
+        encoded, signature = token.split(".", 1)
+        expected = b64url(hmac.new(stay_link_secret(), encoded.encode(), hashlib.sha256).digest())
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError("signature")
+        payload = json.loads(unb64url(encoded))
+        if datetime.fromisoformat(payload["expiresAt"]) <= now():
+            raise ValueError("expired")
+        if not isinstance(payload["roomNumber"], str) or not isinstance(payload["locale"], str):
+            raise ValueError("payload")
+        return payload
+    except (ValueError, KeyError, json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=401, detail={"code": "INVALID_STAY_LINK", "message": "Stay link is invalid or expired"})
 
 
 def require_session(connection: sqlite3.Connection, token: str) -> sqlite3.Row:
@@ -218,6 +265,29 @@ def create_guest_session(payload: SessionRequest) -> dict:
         connection.execute("INSERT INTO guest_sessions VALUES (?, ?, ?, ?, ?)", (token, payload.roomNumber, payload.locale, expires.isoformat(), created.isoformat()))
         connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("session", token, "created", "guest", created.isoformat()))
     return {"token": token, "roomNumber": payload.roomNumber, "locale": payload.locale, "expiresAt": expires.isoformat()}
+
+
+@app.post("/api/stay-links", status_code=201)
+def create_stay_link(payload: StayLinkRequest, authorization: str | None = Header(default=None)) -> dict:
+    with db() as connection:
+        staff = require_staff(connection, authorization)
+        if staff["role"] not in ("manager", "front_desk"):
+            raise HTTPException(status_code=403, detail={"code": "STAY_LINK_FORBIDDEN", "message": "Only front desk or manager can issue a stay link"})
+        token, expires_at = create_stay_link_token(payload.roomNumber, payload.locale, payload.expiresInMinutes)
+        connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("stay_link", payload.roomNumber, "issued", staff["email"], now().isoformat()))
+    return {"stayLinkToken": token, "expiresAt": expires_at, "roomNumber": payload.roomNumber, "locale": payload.locale}
+
+
+@app.post("/api/guest-sessions/from-stay-link", status_code=201)
+def create_guest_session_from_stay_link(stayLinkToken: str = Query(min_length=20)) -> dict:
+    payload = verify_stay_link_token(stayLinkToken)
+    token = secrets.token_urlsafe(24)
+    created = now()
+    expires = min(created + timedelta(hours=24), datetime.fromisoformat(payload["expiresAt"]))
+    with db() as connection:
+        connection.execute("INSERT INTO guest_sessions VALUES (?, ?, ?, ?, ?)", (token, payload["roomNumber"], payload["locale"], expires.isoformat(), created.isoformat()))
+        connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("session", token, "created_from_stay_link", "guest", created.isoformat()))
+    return {"token": token, "roomNumber": payload["roomNumber"], "locale": payload["locale"], "expiresAt": expires.isoformat()}
 
 
 @app.post("/api/orders", status_code=201)

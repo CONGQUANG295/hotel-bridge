@@ -49,21 +49,23 @@ export default function GuestMobileHome() {
   }
 
   useEffect(() => {
-    const roomFromUrl = (url?: string | null) => {
-      if (!url) return undefined;
-      const match = url.match(/(?:room\/|room=)([A-Za-z0-9-]+)/i);
-      return match?.[1];
+    const linkFromUrl = (url?: string | null) => {
+      if (!url) return {};
+      const stay = url.match(/(?:stay\/|stay=)([^/?#]+)/i)?.[1];
+      const room = url.match(/(?:room\/|room=)([A-Za-z0-9-]+)/i)?.[1];
+      return { stayToken: stay ? decodeURIComponent(stay) : undefined, room };
     };
     const initialize = async () => {
-      const initialUrl = await Linking.getInitialURL();
-      const room = roomFromUrl(initialUrl);
-      if (room) setRoomNumber(room);
-      await hydrateSession(room);
+      const link = linkFromUrl(await Linking.getInitialURL());
+      if (link.stayToken) { await clearStoredSession(); await startStayFromLink(link.stayToken); return; }
+      if (link.room) setRoomNumber(link.room);
+      await hydrateSession(link.room);
     };
     void initialize();
     const subscription = Linking.addEventListener('url', event => {
-      const room = roomFromUrl(event.url);
-      if (room) { setRoomNumber(room); void clearStoredSession(); }
+      const link = linkFromUrl(event.url);
+      if (link.stayToken) { void clearStoredSession().then(() => startStayFromLink(link.stayToken!)); }
+      else if (link.room) { setRoomNumber(link.room); void clearStoredSession(); }
     });
     return () => subscription.remove();
   }, []);
@@ -83,6 +85,17 @@ export default function GuestMobileHome() {
       setSession(active); await persistSession(active); await loadServices(); setOrders([]); setConversation(null); setMessages([]);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not connect to Hotel Bridge'); }
     finally { setLoading(false); setRestoring(false); }
+  }
+
+  async function startStayFromLink(stayLinkToken: string) {
+    setLoading(true); setRestoring(false); setError('');
+    try {
+      const response = await fetch(`${API_URL}/api/guest-sessions/from-stay-link?stayLinkToken=${encodeURIComponent(stayLinkToken)}`, { method: 'POST' });
+      if (!response.ok) throw new Error('This hotel stay link is invalid or expired');
+      const active: GuestSession = await response.json();
+      setRoomNumber(active.roomNumber); setSession(active); await persistSession(active); await loadServices(); setOrders([]); setConversation(null); setMessages([]);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not start your hotel stay'); }
+    finally { setLoading(false); }
   }
 
   async function retryConnection() {
