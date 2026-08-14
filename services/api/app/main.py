@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import secrets
 import sqlite3
@@ -61,7 +63,16 @@ def db() -> sqlite3.Connection:
         sender TEXT NOT NULL, original_text TEXT NOT NULL, translated_text TEXT NOT NULL,
         source_locale TEXT NOT NULL, target_locale TEXT NOT NULL, created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS staff_users (
+        id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, display_name TEXT NOT NULL,
+        role TEXT NOT NULL, password_hash TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS staff_tokens (
+        token_hash TEXT PRIMARY KEY, staff_id TEXT NOT NULL REFERENCES staff_users(id),
+        expires_at TEXT NOT NULL, created_at TEXT NOT NULL
+      );
     """)
+    bootstrap_staff(connection)
     return connection
 
 
@@ -98,6 +109,11 @@ class MessageRequest(BaseModel):
     targetLocale: str = Field(default="vi", min_length=2, max_length=10)
 
 
+class StaffLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=8, max_length=256)
+
+
 class StaffMessageRequest(BaseModel):
     originalText: str = Field(min_length=1, max_length=2000)
     sourceLocale: str = Field(default="vi", min_length=2, max_length=10)
@@ -112,11 +128,56 @@ def message_dict(row: sqlite3.Row) -> dict:
     return {"id": row["id"], "conversationId": row["conversation_id"], "sender": row["sender"], "originalText": row["original_text"], "translatedText": row["translated_text"], "sourceLocale": row["source_locale"], "targetLocale": row["target_locale"], "createdAt": row["created_at"]}
 
 
+def password_hash(password: str, salt: bytes | None = None) -> str:
+    active_salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), active_salt, 210_000)
+    return f"{active_salt.hex()}${digest.hex()}"
+
+
+def password_matches(password: str, encoded: str) -> bool:
+    salt_hex, digest_hex = encoded.split("$", 1)
+    return hmac.compare_digest(password_hash(password, bytes.fromhex(salt_hex)).split("$", 1)[1], digest_hex)
+
+
+def bootstrap_staff(connection: sqlite3.Connection) -> None:
+    email = os.getenv("HOTEL_BRIDGE_BOOTSTRAP_STAFF_EMAIL")
+    password = os.getenv("HOTEL_BRIDGE_BOOTSTRAP_STAFF_PASSWORD")
+    if not email or not password:
+        return
+    existing = connection.execute("SELECT id FROM staff_users WHERE email = ?", (email.lower(),)).fetchone()
+    if not existing:
+        connection.execute("INSERT INTO staff_users VALUES (?, ?, ?, ?, ?, ?)", ("STF-BOOTSTRAP", email.lower(), os.getenv("HOTEL_BRIDGE_BOOTSTRAP_STAFF_NAME", "Hotel Manager"), os.getenv("HOTEL_BRIDGE_BOOTSTRAP_STAFF_ROLE", "manager"), password_hash(password), now().isoformat()))
+
+
+def require_staff(connection: sqlite3.Connection, authorization: str | None) -> sqlite3.Row:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail={"code": "STAFF_AUTH_REQUIRED", "message": "Bearer token is required"})
+    token_hash = hashlib.sha256(authorization.removeprefix("Bearer ").encode()).hexdigest()
+    row = connection.execute("SELECT u.* FROM staff_tokens t JOIN staff_users u ON u.id = t.staff_id WHERE t.token_hash = ? AND t.expires_at > ?", (token_hash, now().isoformat())).fetchone()
+    if not row:
+        raise HTTPException(status_code=401, detail={"code": "INVALID_STAFF_TOKEN", "message": "Staff token is missing or expired"})
+    return row
+
+
 def require_session(connection: sqlite3.Connection, token: str) -> sqlite3.Row:
     row = connection.execute("SELECT * FROM guest_sessions WHERE token = ?", (token,)).fetchone()
     if not row or datetime.fromisoformat(row["expires_at"]) <= now():
         raise HTTPException(status_code=401, detail={"code": "INVALID_SESSION", "message": "Guest session is missing or expired"})
     return row
+
+
+@app.post("/api/staff/login")
+def staff_login(payload: StaffLoginRequest) -> dict:
+    with db() as connection:
+        staff = connection.execute("SELECT * FROM staff_users WHERE email = ?", (payload.email.lower(),)).fetchone()
+        if not staff or not password_matches(payload.password, staff["password_hash"]):
+            raise HTTPException(status_code=401, detail={"code": "INVALID_CREDENTIALS", "message": "Email or password is incorrect"})
+        token = secrets.token_urlsafe(32)
+        expires_at = (now() + timedelta(hours=8)).isoformat()
+        connection.execute("DELETE FROM staff_tokens WHERE expires_at <= ?", (now().isoformat(),))
+        connection.execute("INSERT INTO staff_tokens VALUES (?, ?, ?, ?)", (hashlib.sha256(token.encode()).hexdigest(), staff["id"], expires_at, now().isoformat()))
+        connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("staff", staff["id"], "login", staff["email"], now().isoformat()))
+    return {"accessToken": token, "expiresAt": expires_at, "staff": {"id": staff["id"], "displayName": staff["display_name"], "role": staff["role"]}}
 
 
 @app.get("/api/health", response_model=HealthResponse)
@@ -157,13 +218,13 @@ def create_order(payload: OrderRequest) -> dict:
 
 
 @app.get("/api/orders")
-def list_orders(sessionToken: str | None = None, x_staff_role: Role | None = Header(default=None)) -> dict:
+def list_orders(sessionToken: str | None = None, authorization: str | None = Header(default=None)) -> dict:
     with db() as connection:
         if sessionToken:
             session = require_session(connection, sessionToken)
             rows = connection.execute("SELECT * FROM orders WHERE session_token = ? ORDER BY created_at DESC", (session["token"],)).fetchall()
         else:
-            role = x_staff_role or "front_desk"
+            role = require_staff(connection, authorization)["role"]
             if role == "manager" or role == "front_desk":
                 rows = connection.execute("SELECT * FROM orders ORDER BY created_at DESC").fetchall()
             else:
@@ -172,27 +233,27 @@ def list_orders(sessionToken: str | None = None, x_staff_role: Role | None = Hea
 
 
 @app.post("/api/orders/{order_id}/events")
-def update_order(order_id: str, payload: OrderEventRequest, x_staff_role: Role | None = Header(default=None)) -> dict:
-    if not x_staff_role:
-        raise HTTPException(status_code=401, detail={"code": "STAFF_AUTH_REQUIRED", "message": "Staff role header is required"})
-    if payload.status not in STATUSES:
-        raise HTTPException(status_code=422, detail={"code": "INVALID_STATUS", "message": "Unsupported order status"})
+def update_order(order_id: str, payload: OrderEventRequest, authorization: str | None = Header(default=None)) -> dict:
     with db() as connection:
+        staff = require_staff(connection, authorization)
+        role = staff["role"]
+        if payload.status not in STATUSES:
+            raise HTTPException(status_code=422, detail={"code": "INVALID_STATUS", "message": "Unsupported order status"})
         row = connection.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail={"code": "ORDER_NOT_FOUND", "message": "Order does not exist"})
-        if x_staff_role not in ("manager", "front_desk") and x_staff_role != row["assigned_role"]:
+        if role not in ("manager", "front_desk") and role != row["assigned_role"]:
             raise HTTPException(status_code=403, detail={"code": "DEPARTMENT_FORBIDDEN", "message": "This order belongs to another department"})
         updated = now().isoformat()
         connection.execute("UPDATE orders SET status = ?, updated_at = ? WHERE id = ?", (payload.status, updated, order_id))
-        connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("order", order_id, f"status:{payload.status}", x_staff_role, updated))
+        connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("order", order_id, f"status:{payload.status}", staff["email"], updated))
         changed = connection.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
     return order_dict(changed)
 
 
 @app.get("/api/management/inbox")
-def management_inbox(x_staff_role: Role | None = Header(default=None)) -> dict:
-    return list_orders(x_staff_role=x_staff_role)
+def management_inbox(authorization: str | None = Header(default=None)) -> dict:
+    return list_orders(authorization=authorization)
 
 
 @app.post("/api/conversations", status_code=201)
@@ -235,19 +296,17 @@ def send_message(conversation_id: str, payload: MessageRequest) -> dict:
 
 
 @app.get("/api/management/conversations")
-def management_conversations(x_staff_role: Role | None = Header(default=None)) -> dict:
-    if not x_staff_role:
-        raise HTTPException(status_code=401, detail={"code": "STAFF_AUTH_REQUIRED", "message": "Staff role header is required"})
+def management_conversations(authorization: str | None = Header(default=None)) -> dict:
     with db() as connection:
+        require_staff(connection, authorization)
         rows = connection.execute("SELECT c.*, (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count FROM conversations c ORDER BY c.updated_at DESC").fetchall()
     return {"conversations": [{"id": row["id"], "roomNumber": row["room_number"], "messageCount": row["message_count"], "createdAt": row["created_at"], "updatedAt": row["updated_at"]} for row in rows]}
 
 
 @app.get("/api/management/conversations/{conversation_id}/messages")
-def management_messages(conversation_id: str, x_staff_role: Role | None = Header(default=None)) -> dict:
-    if not x_staff_role:
-        raise HTTPException(status_code=401, detail={"code": "STAFF_AUTH_REQUIRED", "message": "Staff role header is required"})
+def management_messages(conversation_id: str, authorization: str | None = Header(default=None)) -> dict:
     with db() as connection:
+        require_staff(connection, authorization)
         conversation = connection.execute("SELECT id FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
         if not conversation:
             raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation does not exist"})
@@ -256,10 +315,9 @@ def management_messages(conversation_id: str, x_staff_role: Role | None = Header
 
 
 @app.post("/api/management/conversations/{conversation_id}/messages", status_code=201)
-def management_send_message(conversation_id: str, payload: StaffMessageRequest, x_staff_role: Role | None = Header(default=None)) -> dict:
-    if not x_staff_role:
-        raise HTTPException(status_code=401, detail={"code": "STAFF_AUTH_REQUIRED", "message": "Staff role header is required"})
+def management_send_message(conversation_id: str, payload: StaffMessageRequest, authorization: str | None = Header(default=None)) -> dict:
     with db() as connection:
+        staff = require_staff(connection, authorization)
         conversation = connection.execute("SELECT id FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
         if not conversation:
             raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation does not exist"})
@@ -268,7 +326,7 @@ def management_send_message(conversation_id: str, payload: StaffMessageRequest, 
         translated = payload.originalText if payload.sourceLocale == payload.targetLocale else f"[demo translation → {payload.targetLocale}] {payload.originalText}"
         connection.execute("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (message_id, conversation_id, "staff", payload.originalText, translated, payload.sourceLocale, payload.targetLocale, timestamp))
         connection.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (timestamp, conversation_id))
-        connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("message", message_id, f"created:{x_staff_role}", x_staff_role, timestamp))
+        connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("message", message_id, f"created:{staff['role']}", staff["email"], timestamp))
         row = connection.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
     return message_dict(row)
 
