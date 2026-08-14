@@ -36,8 +36,9 @@ The canonical source is `/opt/data/source-codes-v3`. The project is between **Ph
 
 ### Not completed
 
-- Mobile session persistence and deep links.
-- Offline/no-network detection and queued retry UX.
+- HTTPS universal links/app links and physical device QA.
+- App icon, splash và Expo store-facing app metadata đã cấu hình; EAS project/credentials và preview build còn thiếu.
+- Offline/no-network detection and queued retry UX; retry cơ bản đã có, queue offline thật còn thiếu.
 - Real staff authentication.
 - QR/stay validation from PMS.
 - Real translation provider.

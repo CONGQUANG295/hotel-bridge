@@ -5,9 +5,11 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "scheme": "hotelbridge",
+    "icon": "./assets/icon.png",
+    "splash": {"image": "./assets/splash.png", "resizeMode": "contain", "backgroundColor": "#f5f6f1"},
     "userInterfaceStyle": "light",
     "ios": {"bundleIdentifier": "com.hotelbridge.guest", "supportsTablet": true},
-    "android": {"package": "com.hotelbridge.guest", "adaptiveIcon": {"backgroundColor": "#14251f"}},
+    "android": {"package": "com.hotelbridge.guest", "adaptiveIcon": {"foregroundImage": "./assets/icon.png", "backgroundColor": "#14251f"}},
     "plugins": ["expo-router"]
   }
 }
