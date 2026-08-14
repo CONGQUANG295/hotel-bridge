@@ -180,6 +180,25 @@ def staff_login(payload: StaffLoginRequest) -> dict:
     return {"accessToken": token, "expiresAt": expires_at, "staff": {"id": staff["id"], "displayName": staff["display_name"], "role": staff["role"]}}
 
 
+@app.get("/api/staff/me")
+def staff_me(authorization: str | None = Header(default=None)) -> dict:
+    with db() as connection:
+        staff = require_staff(connection, authorization)
+    return {"id": staff["id"], "email": staff["email"], "displayName": staff["display_name"], "role": staff["role"]}
+
+
+@app.post("/api/staff/logout")
+def staff_logout(authorization: str | None = Header(default=None)) -> dict:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail={"code": "STAFF_AUTH_REQUIRED", "message": "Bearer token is required"})
+    token_hash = hashlib.sha256(authorization.removeprefix("Bearer ").encode()).hexdigest()
+    with db() as connection:
+        staff = require_staff(connection, authorization)
+        connection.execute("DELETE FROM staff_tokens WHERE token_hash = ?", (token_hash,))
+        connection.execute("INSERT INTO audit_events(entity_type, entity_id, action, actor, created_at) VALUES (?, ?, ?, ?, ?)", ("staff", staff["id"], "logout", staff["email"], now().isoformat()))
+    return {"ok": True}
+
+
 @app.get("/api/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(ok=True, service="hotel-bridge-api", version="0.2.0")
